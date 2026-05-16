@@ -1,11 +1,22 @@
-import { describe, expect, it } from 'vitest';
+import { readFile } from 'node:fs/promises';
+import path from 'node:path';
+import 'fake-indexeddb/auto';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   buildOfflineMarkdown,
+  clearAllData,
   calculateGroupOfflineStatus,
   computeNextRetryAt,
   extractMarkdownImageUrls,
+  importLocalFiles,
+  loadArticles,
+  loadGroups,
+  openSingleLocalFile,
+  removeGroup,
+  saveTemporaryArticle,
   rewriteMarkdownImageUrls
 } from './content-service';
+import { db } from './db';
 import type { Asset } from './types';
 
 describe('calculateGroupOfflineStatus', () => {
@@ -29,6 +40,36 @@ describe('calculateGroupOfflineStatus', () => {
       { downloadStatus: 'not_downloaded' }
     ])).toBe('not_downloaded');
   });
+});
+
+beforeEach(async () => {
+  class TestFile {
+    name: string;
+    type: string;
+    #content: string;
+
+    constructor(parts: BlobPart[], name: string, options?: BlobPropertyBag) {
+      this.name = name;
+      this.type = options?.type ?? '';
+      this.#content = parts.join('');
+    }
+
+    async text(): Promise<string> {
+      return this.#content;
+    }
+  }
+
+  globalThis.File = TestFile as unknown as typeof File;
+
+  if (!db.isOpen()) {
+    db.open();
+  }
+
+  await clearAllData();
+});
+
+afterEach(async () => {
+  await clearAllData();
 });
 
 describe('extractMarkdownImageUrls', () => {
@@ -111,5 +152,79 @@ describe('buildOfflineMarkdown', () => {
       '![ok](mdr-asset://asset:ok)',
       '![failed](./images/failed.png)'
     ].join('\n'));
+  });
+});
+
+describe('openSingleLocalFile', () => {
+  it('opens a real markdown file fixture as a temporary article', async () => {
+    const fixturePath = path.resolve(process.cwd(), 'tests/fixtures/sample-article-with-image.md');
+    const content = await readFile(fixturePath, 'utf8');
+    const file = new File([content], 'sample-article-with-image.md', { type: 'text/markdown' });
+
+    const article = await openSingleLocalFile(file);
+
+    expect(article.isTemporary).toBe(true);
+    expect(article.groupId).toBe('temporary');
+    expect(article.order).toBe(1);
+    expect(article.fileName).toBe('sample-article-with-image.md');
+    expect(article.title).toBe('sample-article-with-image');
+    expect(article.content).toContain('# Sample Article With Image');
+    expect(article.content).toContain('![Fixture image](./sample-reader-image.png)');
+  });
+});
+
+describe('removeGroup', () => {
+  it('removes an imported local markdown group and its stored articles', async () => {
+    const groupId = await importLocalFiles([
+      new File(['# One'], 'one.md', { type: 'text/markdown' })
+    ]);
+
+    expect(await loadArticles(groupId)).toHaveLength(1);
+    expect(await loadGroups()).toHaveLength(1);
+
+    await removeGroup(groupId);
+
+    expect(await loadArticles(groupId)).toHaveLength(0);
+    expect(await loadGroups()).toHaveLength(0);
+    expect(await db.sources.toArray()).toHaveLength(0);
+    expect(await db.groups.toArray()).toHaveLength(0);
+    expect(await db.articles.toArray()).toHaveLength(0);
+  });
+});
+
+describe('clearAllData', () => {
+  it('clears temporary-saved markdown imports and related cached state', async () => {
+    const savedGroupId = await saveTemporaryArticle({
+      id: 'temp:article-1',
+      groupId: 'temporary',
+      order: 1,
+      title: 'Fixture Article',
+      content: '# Fixture Article\n\n![Fixture image](./sample-reader-image.png)',
+      fileName: 'fixture-article.md',
+      isTemporary: true
+    });
+
+    await db.assets.put({
+      id: 'asset:test-1',
+      articleId: `${savedGroupId}:1`,
+      originalUrl: 'https://reader.test/image.png',
+      status: 'downloaded',
+      attemptCount: 1,
+      createdAt: '2026-05-17T00:00:00.000Z',
+      updatedAt: '2026-05-17T00:00:00.000Z'
+    });
+
+    expect(await loadGroups()).toHaveLength(1);
+    expect(await loadArticles(savedGroupId)).toHaveLength(1);
+    expect(await db.assets.toArray()).toHaveLength(1);
+
+    await clearAllData();
+
+    expect(await loadGroups()).toHaveLength(0);
+    expect(await db.sources.toArray()).toHaveLength(0);
+    expect(await db.groups.toArray()).toHaveLength(0);
+    expect(await db.articles.toArray()).toHaveLength(0);
+    expect(await db.readingStates.toArray()).toHaveLength(0);
+    expect(await db.assets.toArray()).toHaveLength(0);
   });
 });
