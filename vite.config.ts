@@ -42,20 +42,23 @@ export default defineConfig({
     })
   ],
   build: {
-    rollupOptions: {
+    rolldownOptions: {
       output: {
-        manualChunks(id) {
-          if (id.includes('node_modules/markdown-it') || id.includes('node_modules/highlight.js') || id.includes('node_modules/dompurify')) {
-            return 'markdown-stack';
-          }
-
-          if (id.includes('node_modules/dexie')) {
-            return 'storage-stack';
-          }
-
-          if (id.includes('node_modules/svelte')) {
-            return 'vendor-svelte';
-          }
+        codeSplitting: {
+          groups: [
+            {
+              name: 'markdown-stack',
+              test: /node_modules[\\/](markdown-it|highlight\.js|dompurify)[\\/]/
+            },
+            {
+              name: 'storage-stack',
+              test: /node_modules[\\/]dexie[\\/]/
+            },
+            {
+              name: 'vendor-svelte',
+              test: /node_modules[\\/]svelte[\\/]/
+            }
+          ]
         }
       }
     }
