@@ -1,0 +1,35 @@
+{
+  "name": "my-md-reader",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "check": "svelte-check --tsconfig ./tsconfig.json",
+    "test": "vitest run",
+    "test:unit": "vitest run"
+  },
+  "dependencies": {
+    "dexie": "^4.2.1",
+    "dompurify": "^3.3.0",
+    "highlight.js": "^11.11.1",
+    "markdown-it": "^14.1.0",
+    "svelte": "^5.37.0",
+    "workbox-window": "^7.4.1"
+  },
+  "devDependencies": {
+    "@sveltejs/vite-plugin-svelte": "^6.2.1",
+    "@tsconfig/svelte": "^5.0.5",
+    "@types/markdown-it": "^14.1.2",
+    "@types/node": "^24.10.1",
+    "jsdom": "^26.1.0",
+    "svelte-check": "^4.3.3",
+    "typescript": "^5.9.3",
+    "vite": "^7.2.1",
+    "vite-plugin-pwa": "^1.1.0",
+    "vitest": "^4.0.7"
+  },
+  "packageManager": "pnpm@10.33.0+sha512.10568bb4a6afb58c9eb3630da90cc9516417abebd3fabbe6739f0ae795728da1491e9db5a544c76ad8eb7570f5c4bb3d6c637b2cb41bfdcdb47fa823c8649319"
+}

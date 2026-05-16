@@ -48,7 +48,7 @@ Use a lightweight client-side stack:
 - HTML sanitization: DOMPurify or an equivalent sanitizer before injecting rendered Markdown.
 - Code highlighting: `highlight.js` or Shiki, chosen during implementation based on bundle size and rendering quality.
 - Unit tests: Vitest.
-- Browser tests: Playwright.
+- Browser tests: optional lightweight smoke checks when needed.
 
 Use plain Svelte with Vite for version 1. Do not use SvelteKit unless a later version needs server-side routing, prerendering, or a combined content publishing server.
 
