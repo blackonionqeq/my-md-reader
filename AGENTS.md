@@ -78,6 +78,7 @@ Reading flow:
 - If you change manifest shape or persistence behavior, update tests in `src/lib/*.test.ts`.
 - Preserve the raw-Markdown fallback in `ReaderPane.svelte` when render failures happen.
 - Avoid reintroducing Playwright unless the project explicitly needs browser automation again.
+- When generating commit messages, use gitmoji.
 
 ## Existing Specs
 
