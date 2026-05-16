@@ -8,6 +8,7 @@
   import {
     clearAllData,
     downloadGroup,
+    hydrateArticleAssets,
     importLocalFiles,
     loadArticles,
     loadGroups,
@@ -100,7 +101,7 @@
       return;
     }
 
-    selectedArticle = article;
+    selectedArticle = await hydrateArticleAssets(article);
     selectedArticleId = article.id;
     readingState = (await loadReadingState(article.id)) ?? null;
   }

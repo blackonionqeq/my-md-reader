@@ -18,6 +18,22 @@ export class ReaderDatabase extends Dexie {
       readingStates: 'articleId, groupId, isFavorite, lastReadAt',
       assets: 'id, articleId, status'
     });
+
+    this.version(2).stores({
+      sources: 'id, type, url, updatedAt',
+      groups: 'id, sourceId, offlineStatus, updatedAt, lastReadArticleId',
+      articles: 'id, groupId, order, downloadStatus, updatedAt',
+      readingStates: 'articleId, groupId, isFavorite, lastReadAt',
+      assets: 'id, articleId, status, nextRetryAt, updatedAt'
+    }).upgrade((tx) => {
+      return tx.table('assets').toCollection().modify((asset) => {
+        asset.status = asset.status ?? 'pending';
+        asset.attemptCount = typeof asset.attemptCount === 'number' ? asset.attemptCount : 0;
+        asset.createdAt = asset.createdAt ?? new Date().toISOString();
+        asset.updatedAt = new Date().toISOString();
+        delete asset.localCacheKey;
+      });
+    });
   }
 }
 

@@ -1,6 +1,7 @@
 export type SourceType = 'manifest' | 'local';
 export type OfflineStatus = 'not_downloaded' | 'partial' | 'downloaded';
 export type DownloadStatus = 'not_downloaded' | 'downloading' | 'downloaded' | 'failed';
+export type AssetStatus = 'pending' | 'downloading' | 'downloaded' | 'failed';
 export type ThemeMode = 'light' | 'dark' | 'system';
 
 export interface Source {
@@ -55,8 +56,14 @@ export interface Asset {
   id: string;
   articleId: string;
   originalUrl: string;
-  localCacheKey?: string;
-  status: string;
+  blob?: Blob;
+  mimeType?: string;
+  status: AssetStatus;
+  attemptCount: number;
+  nextRetryAt?: string;
+  lastError?: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface ReaderSettings {

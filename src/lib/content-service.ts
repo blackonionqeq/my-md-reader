@@ -3,11 +3,316 @@ import { createId } from './id';
 import { normalizeManifestPreview, validateManifest } from './manifest';
 import type {
   Article,
+  Asset,
+  AssetStatus,
   GroupListItem,
   ManifestPreview,
   ReadingState,
   TemporaryArticle
 } from './types';
+
+const MAX_ASSET_RETRY_ATTEMPTS = 5;
+const ASSET_RETRY_DELAYS_MS = [1000, 3000, 10000, 30000];
+const ASSET_PLACEHOLDER_PREFIX = 'mdr-asset://';
+const ASSET_MARKDOWN_PATTERN = /!\[([^\]]*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g;
+const ASSET_PLACEHOLDER_PATTERN = new RegExp(`${escapeRegExp(ASSET_PLACEHOLDER_PREFIX)}([^)\\s]+)`, 'g');
+
+const objectUrlRegistry = new Map<string, string>();
+
+function createAssetPlaceholder(assetId: string): string {
+  return `${ASSET_PLACEHOLDER_PREFIX}${assetId}`;
+}
+
+function isRemoteImageUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+export function computeNextRetryAt(attemptCount: number, now = Date.now()): string | undefined {
+  if (attemptCount >= MAX_ASSET_RETRY_ATTEMPTS) {
+    return undefined;
+  }
+
+  const delay = ASSET_RETRY_DELAYS_MS[Math.max(0, attemptCount - 1)];
+  if (!delay) {
+    return undefined;
+  }
+
+  return new Date(now + delay).toISOString();
+}
+
+export function extractMarkdownImageUrls(content: string, articleUrl: string): Array<{ original: string; resolved: string }> {
+  const matches = Array.from(content.matchAll(ASSET_MARKDOWN_PATTERN));
+  const deduped = new Map<string, { original: string; resolved: string }>();
+
+  for (const match of matches) {
+    const original = match[2]?.trim();
+    if (!original) {
+      continue;
+    }
+
+    let resolved: string;
+    try {
+      resolved = new URL(original, articleUrl).toString();
+    } catch {
+      continue;
+    }
+
+    if (!isRemoteImageUrl(resolved) || deduped.has(resolved)) {
+      continue;
+    }
+
+    deduped.set(resolved, { original, resolved });
+  }
+
+  return Array.from(deduped.values());
+}
+
+export function rewriteMarkdownImageUrls(
+  content: string,
+  articleUrl: string,
+  replacements: Map<string, string>
+): string {
+  return content.replace(ASSET_MARKDOWN_PATTERN, (fullMatch, altText: string, rawUrl: string) => {
+    const original = rawUrl?.trim();
+    if (!original) {
+      return fullMatch;
+    }
+
+    let resolved: string;
+    try {
+      resolved = new URL(original, articleUrl).toString();
+    } catch {
+      return fullMatch;
+    }
+
+    const replacement = replacements.get(resolved);
+    if (!replacement) {
+      return fullMatch;
+    }
+
+    return fullMatch.replace(rawUrl, replacement);
+  });
+}
+
+function revokeArticleObjectUrls(articleId: string): void {
+  const keys = Array.from(objectUrlRegistry.keys()).filter((key) => key.startsWith(`${articleId}:`));
+  for (const key of keys) {
+    const url = objectUrlRegistry.get(key);
+    if (url) {
+      URL.revokeObjectURL(url);
+      objectUrlRegistry.delete(key);
+    }
+  }
+}
+
+function revokeAllObjectUrls(): void {
+  for (const url of objectUrlRegistry.values()) {
+    URL.revokeObjectURL(url);
+  }
+
+  objectUrlRegistry.clear();
+}
+
+async function persistPendingAssets(articleId: string, imageUrls: Array<{ original: string; resolved: string }>): Promise<Asset[]> {
+  const existingAssets = await db.assets.where('articleId').equals(articleId).toArray();
+  const existingByUrl = new Map(existingAssets.map((asset) => [asset.originalUrl, asset]));
+  const now = new Date().toISOString();
+  const nextResolvedUrls = new Set(imageUrls.map((entry) => entry.resolved));
+
+  const staleAssetIds = existingAssets
+    .filter((asset) => !nextResolvedUrls.has(asset.originalUrl))
+    .map((asset) => asset.id);
+
+  if (staleAssetIds.length > 0) {
+    await db.assets.bulkDelete(staleAssetIds);
+  }
+
+  const assets: Asset[] = imageUrls.map(({ resolved }) => {
+    const existing = existingByUrl.get(resolved);
+    const shouldReuseDownloaded = existing?.status === 'downloaded' && Boolean(existing.blob);
+    return {
+      id: existing?.id ?? createId('asset'),
+      articleId,
+      originalUrl: resolved,
+      blob: existing?.blob,
+      mimeType: existing?.mimeType,
+      status: shouldReuseDownloaded ? 'downloaded' : 'pending',
+      attemptCount: shouldReuseDownloaded ? existing?.attemptCount ?? 0 : 0,
+      nextRetryAt: shouldReuseDownloaded ? undefined : undefined,
+      lastError: shouldReuseDownloaded ? undefined : undefined,
+      createdAt: existing?.createdAt ?? now,
+      updatedAt: now
+    };
+  });
+
+  if (assets.length > 0) {
+    await db.assets.bulkPut(assets);
+  }
+
+  return assets;
+}
+
+async function markAssetAttemptFailure(asset: Asset, error: unknown): Promise<Asset> {
+  const attemptCount = asset.attemptCount + 1;
+  const updatedAt = new Date().toISOString();
+  const status: AssetStatus = attemptCount >= MAX_ASSET_RETRY_ATTEMPTS ? 'failed' : 'pending';
+  const nextRetryAt = status === 'pending' ? computeNextRetryAt(attemptCount) : undefined;
+  const updatedAsset: Asset = {
+    ...asset,
+    status,
+    attemptCount,
+    nextRetryAt,
+    lastError: toErrorMessage(error),
+    updatedAt
+  };
+
+  await db.assets.put(updatedAsset);
+  return updatedAsset;
+}
+
+async function downloadAsset(asset: Asset): Promise<Asset> {
+  const startedAt = new Date().toISOString();
+  const downloadingAsset: Asset = {
+    ...asset,
+    status: 'downloading',
+    nextRetryAt: undefined,
+    updatedAt: startedAt
+  };
+
+  await db.assets.put(downloadingAsset);
+
+  try {
+    const response = await fetch(asset.originalUrl);
+    if (!response.ok) {
+      throw new Error(`${response.status} ${response.statusText}`);
+    }
+
+    const blob = await response.blob();
+    const downloadedAsset: Asset = {
+      ...downloadingAsset,
+      blob,
+      mimeType: response.headers.get('content-type') ?? undefined,
+      status: 'downloaded',
+      attemptCount: downloadingAsset.attemptCount + 1,
+      nextRetryAt: undefined,
+      lastError: undefined,
+      updatedAt: new Date().toISOString()
+    };
+
+    await db.assets.put(downloadedAsset);
+    return downloadedAsset;
+  } catch (error) {
+    return markAssetAttemptFailure(downloadingAsset, error);
+  }
+}
+
+async function runAssetRetryQueue(assets: Asset[]): Promise<Asset[]> {
+  const queue = assets.filter((asset) => asset.status !== 'downloaded');
+  const results = new Map<string, Asset>(assets.map((asset) => [asset.id, asset]));
+
+  while (queue.length > 0) {
+    queue.sort((left, right) => {
+      const leftTime = left.nextRetryAt ? new Date(left.nextRetryAt).getTime() : 0;
+      const rightTime = right.nextRetryAt ? new Date(right.nextRetryAt).getTime() : 0;
+      return leftTime - rightTime;
+    });
+
+    const asset = queue.shift();
+    if (!asset) {
+      continue;
+    }
+
+    const dueAt = asset.nextRetryAt ? new Date(asset.nextRetryAt).getTime() : 0;
+    const delay = Math.max(0, dueAt - Date.now());
+    if (delay > 0) {
+      await new Promise((resolve) => globalThis.setTimeout(resolve, delay));
+    }
+
+    const updated = await downloadAsset(asset);
+    results.set(updated.id, updated);
+
+    if (updated.status === 'pending') {
+      queue.push(updated);
+    }
+  }
+
+  return Array.from(results.values());
+}
+
+export function buildOfflineMarkdown(articleContent: string, articleUrl: string, assets: Asset[]): string {
+  const replacements = new Map<string, string>();
+
+  for (const asset of assets) {
+    if (asset.status === 'downloaded') {
+      replacements.set(asset.originalUrl, createAssetPlaceholder(asset.id));
+    }
+  }
+
+  return rewriteMarkdownImageUrls(articleContent, articleUrl, replacements);
+}
+
+async function downloadArticleAssets(article: Article, content: string): Promise<string> {
+  if (!article.url) {
+    return content;
+  }
+
+  const imageUrls = extractMarkdownImageUrls(content, article.url);
+  if (imageUrls.length === 0) {
+    const existingAssets = await db.assets.where('articleId').equals(article.id).toArray();
+    if (existingAssets.length > 0) {
+      await db.assets.bulkDelete(existingAssets.map((asset) => asset.id));
+    }
+    return content;
+  }
+
+  const pendingAssets = await persistPendingAssets(article.id, imageUrls);
+  const finalAssets = await runAssetRetryQueue(pendingAssets);
+  return buildOfflineMarkdown(content, article.url, finalAssets);
+}
+
+export async function hydrateArticleAssets(article: Article): Promise<Article> {
+  revokeArticleObjectUrls(article.id);
+
+  if (!article.content || !article.content.includes(ASSET_PLACEHOLDER_PREFIX)) {
+    return article;
+  }
+
+  const assets = await db.assets.where('articleId').equals(article.id).toArray();
+  const assetById = new Map(assets.map((asset) => [asset.id, asset]));
+
+  const hydratedContent = article.content.replace(
+    ASSET_PLACEHOLDER_PATTERN,
+    (placeholder, assetId: string) => {
+      const asset = assetById.get(assetId);
+      if (!asset) {
+        return placeholder;
+      }
+
+      if (!asset.blob) {
+        return asset.originalUrl;
+      }
+
+      const registryKey = `${article.id}:${asset.id}`;
+      const objectUrl = URL.createObjectURL(asset.blob);
+      objectUrlRegistry.set(registryKey, objectUrl);
+      return objectUrl;
+    }
+  );
+
+  return {
+    ...article,
+    content: hydratedContent
+  };
+}
 
 function toErrorMessage(error: unknown): string {
   if (error instanceof Error) {
@@ -188,8 +493,9 @@ export async function downloadGroup(groupId: string, articleIds?: string[]): Pro
       }
 
       const content = await response.text();
+      const offlineContent = await downloadArticleAssets(article, content);
       await db.articles.update(article.id, {
-        content,
+        content: offlineContent,
         downloadStatus: 'downloaded',
         errorMessage: undefined,
         updatedAt: new Date().toISOString()
@@ -283,9 +589,11 @@ export async function removeGroup(groupId: string): Promise<void> {
     return;
   }
 
-  await db.transaction('rw', db.groups, db.articles, db.readingStates, db.sources, async () => {
+  await db.transaction('rw', [db.groups, db.articles, db.readingStates, db.sources, db.assets], async () => {
     const articles = await db.articles.where('groupId').equals(groupId).toArray();
+    await db.assets.where('articleId').anyOf(articles.map((article) => article.id)).delete();
     await db.articles.bulkDelete(articles.map((article) => article.id));
+    articles.forEach((article) => revokeArticleObjectUrls(article.id));
 
     const readingStates = await db.readingStates.where('groupId').equals(groupId).toArray();
     await db.readingStates.bulkDelete(readingStates.map((state) => state.articleId));
@@ -300,6 +608,7 @@ export async function removeGroup(groupId: string): Promise<void> {
 }
 
 export async function clearAllData(): Promise<void> {
+  revokeAllObjectUrls();
   await db.transaction('rw', [db.sources, db.groups, db.articles, db.readingStates, db.assets], async () => {
     await db.assets.clear();
     await db.readingStates.clear();
