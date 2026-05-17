@@ -22,6 +22,7 @@
     saveTemporaryArticle,
     toggleFavorite
   } from './lib/content-service';
+  import { dropImport } from './lib/drop-import';
   import { applyTheme, loadSettings, normalizeFontSize, saveSettings } from './lib/settings';
   import type {
     Article,
@@ -56,6 +57,7 @@
   let messageTone: 'info' | 'error' = 'info';
   let showSettings = false;
   let showDirectory = false;
+  let dragging = false;
 
   function setMessage(value: string, tone: 'info' | 'error' = 'info'): void {
     message = value;
@@ -236,6 +238,29 @@
     setMessage(`Saved "${article.title}" to the bookshelf.`);
   }
 
+  async function handleDroppedFiles(files: File[]): Promise<void> {
+    if (files.length === 0) {
+      setMessage('No markdown files found. Drop .md files to import.', 'error');
+      return;
+    }
+
+    if (files.length === 1) {
+      const file = files[0]!;
+      const tempArticle = await openSingleLocalFile(file);
+      selectedArticle = tempArticle;
+      selectedArticleId = tempArticle.id;
+      readingState = null;
+      outline = [];
+      setMessage(`Opened temporary article "${tempArticle.title}". Import it when ready.`);
+      return;
+    }
+
+    const groupId = await importLocalFiles(files);
+    await refreshGroups();
+    await selectGroup(groupId);
+    setMessage(`Imported ${files.length} markdown files into your bookshelf.`);
+  }
+
   async function handleRemoveGroup(groupId: string): Promise<void> {
     await removeGroup(groupId);
     if (selectedGroupId === groupId) {
@@ -307,7 +332,16 @@
   on:change={handleLocalImport}
 />
 
-<div class="app-shell">
+<div class="app-shell" use:dropImport={{ onDrop: handleDroppedFiles, onDragChange: (v) => (dragging = v) }}>
+  {#if dragging}
+    <div class="drop-overlay">
+      <div class="drop-prompt">
+        <span class="drop-icon">+</span>
+        <p>Drop markdown files to import</p>
+      </div>
+    </div>
+  {/if}
+
   <header class="topbar">
     <div>
       <span class="eyebrow">Offline-first markdown reader</span>
@@ -535,6 +569,44 @@
     color: var(--text-muted);
     font-size: 0.9rem;
     margin-top: 0.5rem;
+  }
+
+  .drop-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 1000;
+    background: rgba(0, 0, 0, 0.45);
+    backdrop-filter: blur(4px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+  }
+
+  .drop-prompt {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 2.5rem 3.5rem;
+    border: 2px dashed var(--accent);
+    border-radius: 1.5rem;
+    background: var(--bg-panel);
+    box-shadow: var(--shadow-sm);
+  }
+
+  .drop-icon {
+    font-size: 2.5rem;
+    font-weight: 700;
+    color: var(--accent);
+    line-height: 1;
+  }
+
+  .drop-prompt p {
+    margin: 0;
+    font-size: 1.1rem;
+    font-weight: 500;
+    color: var(--text-main);
   }
 
   @media (max-width: 1100px) {
