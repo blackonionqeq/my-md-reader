@@ -2,6 +2,15 @@ server {
     listen 80;
     listen [::]:80;
     server_name __APP_DOMAIN__;
+    include /etc/nginx/tmp.conf;
+    limit_conn perip_conn 20;
+    limit_req zone=perip_req burst=30 nodelay;
+
+    location ^~ /.well-known/acme-challenge/ {
+        root /var/www/letsencrypt;
+        default_type text/plain;
+        try_files $uri =404;
+    }
 
     return 301 https://$host$request_uri;
 }
@@ -10,15 +19,36 @@ server {
     listen 443 ssl http2;
     listen [::]:443 ssl http2;
     server_name __APP_DOMAIN__;
+    include /etc/nginx/tmp.conf;
+    limit_conn perip_conn 20;
+    limit_req zone=perip_req burst=30 nodelay;
 
     ssl_certificate __SSL_CERT_PATH__;
     ssl_certificate_key __SSL_KEY_PATH__;
+    ssl_session_cache shared:SSL:10m;
+    ssl_session_timeout 1d;
+    ssl_session_tickets off;
+
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-Frame-Options "DENY" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+
+    gzip on;
+    gzip_types text/css application/javascript application/json image/svg+xml application/manifest+json;
 
     root __WEB_ROOT__;
     index index.html;
 
+    include mime.types;
     types {
         application/manifest+json webmanifest;
+    }
+
+    location ^~ /.well-known/acme-challenge/ {
+        root /var/www/letsencrypt;
+        default_type text/plain;
+        try_files $uri =404;
     }
 
     location / {
@@ -30,6 +60,10 @@ server {
     }
 
     location = /manifest.webmanifest {
+        add_header Cache-Control "no-cache";
+    }
+
+    location = /sw.js {
         add_header Cache-Control "no-cache";
     }
 
