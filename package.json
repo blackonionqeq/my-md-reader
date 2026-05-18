@@ -16,6 +16,7 @@
     "dompurify": "^3.3.0",
     "highlight.js": "^11.11.1",
     "markdown-it": "^14.1.0",
+    "mermaid": "^11.15.0",
     "svelte": "^5.46.4",
     "workbox-window": "^7.4.1"
   },

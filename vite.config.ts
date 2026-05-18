@@ -51,6 +51,10 @@ export default defineConfig({
               test: /node_modules[\\/](markdown-it|highlight\.js|dompurify)[\\/]/
             },
             {
+              name: 'mermaid-stack',
+              test: /node_modules[\\/]mermaid[\\/]/
+            },
+            {
               name: 'storage-stack',
               test: /node_modules[\\/]dexie[\\/]/
             },

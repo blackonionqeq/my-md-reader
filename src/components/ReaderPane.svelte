@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte';
-  import { renderMarkdownToHtml } from '../lib/markdown';
+  import { renderMarkdownToHtml, renderMermaidBlocks } from '../lib/markdown';
   import { collectHeadings } from '../lib/outline';
   import type { OutlineHeading, ReaderArticle, ReadingState, TemporaryArticle } from '../lib/types';
 
@@ -52,6 +52,7 @@
       }
 
       if (container) {
+        await renderMermaidBlocks(container);
         onOutlineChange(collectHeadings(container));
         if (readingState?.scrollPosition) {
           container.scrollTop = readingState.scrollPosition;
@@ -234,6 +235,19 @@
     background: var(--bg-app);
     border: 1px solid var(--border-light);
     font-family: var(--font-mono);
+  }
+
+  .reader :global(pre.mermaid) {
+    text-align: center;
+    background: transparent;
+    border: none;
+    padding: 1rem 0;
+    font-family: inherit;
+  }
+
+  .reader :global(pre.mermaid svg) {
+    max-width: 100%;
+    height: auto;
   }
 
   .reader :global(code) {

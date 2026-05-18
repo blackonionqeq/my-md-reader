@@ -1,6 +1,7 @@
 type MarkdownItModule = typeof import('markdown-it');
 type HighlightCoreModule = typeof import('highlight.js/lib/core');
 type DomPurifyModule = typeof import('dompurify');
+type MermaidModule = typeof import('mermaid');
 type HighlightLanguageModule = {
   default: HighlightCoreModule['default']['registerLanguage'] extends (
     languageName: string,
@@ -11,6 +12,16 @@ type HighlightLanguageModule = {
 type MarkdownRenderer = {
   render(content: string): string;
 };
+
+const MERMAID_ALIASES = new Set(['mermaid', 'mmd']);
+
+function escapeHtml(str: string): string {
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
 
 let rendererPromise: Promise<MarkdownRenderer> | null = null;
 
@@ -68,6 +79,10 @@ async function createRenderer(): Promise<MarkdownRenderer> {
     linkify: true,
     typographer: true,
     highlight(str: string, lang: string) {
+      if (lang && MERMAID_ALIASES.has(lang.toLowerCase())) {
+        return `<pre class="mermaid">${escapeHtml(str.trimEnd())}</pre>`;
+      }
+
       if (lang && hljs.getLanguage(lang)) {
         try {
           return `<pre class="hljs"><code>${hljs.highlight(str, { language: lang }).value}</code></pre>`;
@@ -99,4 +114,33 @@ async function getRenderer(): Promise<MarkdownRenderer> {
 export async function renderMarkdownToHtml(content: string): Promise<string> {
   const renderer = await getRenderer();
   return renderer.render(content);
+}
+
+let mermaidPromise: Promise<MermaidModule> | null = null;
+
+function resolveEffectiveTheme(): 'dark' | 'default' {
+  const theme = document.documentElement.dataset.theme;
+  if (theme === 'dark') return 'dark';
+  if (theme === 'light') return 'default';
+  return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'default';
+}
+
+export async function renderMermaidBlocks(container: HTMLElement): Promise<void> {
+  const nodes = container.querySelectorAll<HTMLPreElement>('pre.mermaid');
+  if (nodes.length === 0) {
+    return;
+  }
+
+  if (!mermaidPromise) {
+    mermaidPromise = import('mermaid') as Promise<MermaidModule>;
+  }
+
+  const { default: mermaid } = await mermaidPromise;
+  mermaid.initialize({
+    startOnLoad: false,
+    theme: resolveEffectiveTheme(),
+    securityLevel: 'strict',
+  });
+
+  await mermaid.run({ nodes: Array.from(nodes) });
 }
