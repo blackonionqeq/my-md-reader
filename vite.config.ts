@@ -37,7 +37,17 @@ export default defineConfig({
       },
       workbox: {
         navigateFallback: '/index.html',
-        globPatterns: ['**/*.{js,css,html,ico,png,svg,webmanifest}']
+        globPatterns: ['**/*.{js,css,html,ico,png,svg,webmanifest}'],
+        runtimeCaching: [
+          {
+            urlPattern: /mermaid.*\.(?:js|mjs)$/,
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'mermaid-cache',
+              expiration: { maxEntries: 50, maxAgeSeconds: 30 * 24 * 60 * 60 }
+            }
+          }
+        ],
       }
     })
   ],
@@ -49,10 +59,6 @@ export default defineConfig({
             {
               name: 'markdown-stack',
               test: /node_modules[\\/](markdown-it|highlight\.js|dompurify)[\\/]/
-            },
-            {
-              name: 'mermaid-stack',
-              test: /node_modules[\\/]mermaid[\\/]/
             },
             {
               name: 'storage-stack',
