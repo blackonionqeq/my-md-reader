@@ -35,6 +35,39 @@ export function saveSettings(settings: ReaderSettings): void {
 export function applyTheme(theme: ThemeMode): void {
   const root = document.documentElement;
   root.dataset.theme = theme;
+  updateThemeColor(theme);
+}
+
+function resolveEffectiveTheme(theme: ThemeMode): 'light' | 'dark' {
+  if (theme !== 'system') return theme;
+  return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+}
+
+const THEME_COLORS = { light: '#f8fafc', dark: '#0f172a' } as const;
+
+let systemThemeCleanup: (() => void) | null = null;
+
+function updateThemeColor(theme: ThemeMode): void {
+  if (systemThemeCleanup) {
+    systemThemeCleanup();
+    systemThemeCleanup = null;
+  }
+
+  setMetaThemeColor(resolveEffectiveTheme(theme));
+
+  if (theme === 'system') {
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    const handler = () => setMetaThemeColor(mq.matches ? 'dark' : 'light');
+    mq.addEventListener('change', handler);
+    systemThemeCleanup = () => mq.removeEventListener('change', handler);
+  }
+}
+
+function setMetaThemeColor(effective: 'light' | 'dark'): void {
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) {
+    meta.setAttribute('content', THEME_COLORS[effective]);
+  }
 }
 
 export function normalizeFontSize(value: unknown): number {
