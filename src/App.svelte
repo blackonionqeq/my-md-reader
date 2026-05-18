@@ -430,6 +430,18 @@
     </aside>
   </main>
 
+  {#if showDirectory || showSettings}
+    <button class="mobile-backdrop" on:click={() => { showDirectory = false; showSettings = false; }} aria-label="Close panel"></button>
+  {/if}
+
+  <div class="mobile-fab-group">
+    <button class="mobile-fab" class:active={showDirectory} on:click={() => { showDirectory = !showDirectory; if (showDirectory) showSettings = false; }} aria-label="Toggle directory">
+      <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M3 4h14M3 8h14M3 12h10M3 16h10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+    </button>
+    <button class="mobile-fab" class:active={showSettings} on:click={() => { showSettings = !showSettings; if (showSettings) showDirectory = false; }} aria-label="Toggle settings">
+      <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M10 12.5a2.5 2.5 0 100-5 2.5 2.5 0 000 5z" stroke="currentColor" stroke-width="1.5"/><path d="M16.2 12.2a1.2 1.2 0 00.2 1.3l.04.04a1.5 1.5 0 11-2.12 2.12l-.04-.04a1.2 1.2 0 00-1.3-.2 1.2 1.2 0 00-.73 1.1v.1a1.5 1.5 0 11-3 0v-.06a1.2 1.2 0 00-.78-1.1 1.2 1.2 0 00-1.3.2l-.04.04a1.5 1.5 0 11-2.12-2.12l.04-.04a1.2 1.2 0 00.2-1.3 1.2 1.2 0 00-1.1-.73h-.1a1.5 1.5 0 110-3h.06a1.2 1.2 0 001.1-.78 1.2 1.2 0 00-.2-1.3l-.04-.04A1.5 1.5 0 117.05 4.22l.04.04a1.2 1.2 0 001.3.2h.06a1.2 1.2 0 00.73-1.1v-.1a1.5 1.5 0 113 0v.06a1.2 1.2 0 00.78 1.1 1.2 1.2 0 001.3-.2l.04-.04a1.5 1.5 0 112.12 2.12l-.04.04a1.2 1.2 0 00-.2 1.3v.06a1.2 1.2 0 001.1.73h.1a1.5 1.5 0 110 3h-.06a1.2 1.2 0 00-1.1.78z" stroke="currentColor" stroke-width="1.5"/></svg>
+    </button>
+  </div>
 </div>
 
 <style>
@@ -609,6 +621,14 @@
     color: var(--text-main);
   }
 
+  .mobile-backdrop {
+    display: none;
+  }
+
+  .mobile-fab-group {
+    display: none;
+  }
+
   @media (max-width: 1100px) {
     .layout {
       grid-template-columns: minmax(0, 1fr);
@@ -616,11 +636,74 @@
 
     .left-column,
     .right-column {
-      position: static;
+      position: fixed;
+      top: 0;
+      bottom: 0;
+      width: min(85vw, 22rem);
+      z-index: 200;
+      background: var(--bg-app);
+      overflow-y: auto;
+      padding: 1.25rem;
+      box-shadow: var(--shadow-md);
+      transition: transform 0.25s ease;
     }
 
-    .panel-hidden {
-      display: none;
+    .left-column {
+      left: 0;
+    }
+
+    .right-column {
+      right: 0;
+    }
+
+    .left-column.panel-hidden {
+      transform: translateX(-100%);
+      pointer-events: none;
+    }
+
+    .right-column.panel-hidden {
+      transform: translateX(100%);
+      pointer-events: none;
+    }
+
+    .mobile-backdrop {
+      display: block;
+      position: fixed;
+      inset: 0;
+      z-index: 150;
+      background: rgba(0, 0, 0, 0.4);
+      backdrop-filter: blur(2px);
+      border: none;
+      padding: 0;
+      cursor: default;
+    }
+
+    .mobile-fab-group {
+      display: flex;
+      gap: 0.75rem;
+      position: fixed;
+      bottom: 1.25rem;
+      right: 1.25rem;
+      z-index: 100;
+    }
+
+    .mobile-fab {
+      width: 3rem;
+      height: 3rem;
+      border-radius: 50%;
+      border: 1px solid var(--border-light);
+      background: var(--bg-panel);
+      color: var(--text-main);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: var(--shadow-md);
+    }
+
+    .mobile-fab.active {
+      background: var(--accent);
+      color: var(--text-inverse);
+      border-color: transparent;
     }
   }
 
