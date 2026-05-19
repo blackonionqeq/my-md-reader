@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onDestroy, onMount } from 'svelte';
   import AddSourceForm from './components/AddSourceForm.svelte';
   import Bookshelf from './components/Bookshelf.svelte';
   import GroupDetail from './components/GroupDetail.svelte';
@@ -23,6 +23,7 @@
     toggleFavorite
   } from './lib/content-service';
   import { dropImport } from './lib/drop-import';
+  import type { FocusModeController } from './lib/focus-mode';
   import { applyTheme, loadSettings, normalizeFontSize, saveSettings } from './lib/settings';
   import type {
     Article,
@@ -58,6 +59,8 @@
   let showSettings = false;
   let showDirectory = false;
   let dragging = false;
+  let focusMode = false;
+  let focusController: FocusModeController | null = null;
 
   function setMessage(value: string, tone: 'info' | 'error' = 'info'): void {
     message = value;
@@ -301,6 +304,16 @@
     setMessage('Local cache cleared.');
   }
 
+  async function toggleFocusMode(): Promise<void> {
+    if (!focusController) {
+      const { createFocusMode } = await import('./lib/focus-mode');
+      focusController = createFocusMode((active) => {
+        focusMode = active;
+      });
+    }
+    focusController.toggle();
+  }
+
   onMount(async () => {
     applyTheme(settings.theme);
     await refreshGroups();
@@ -317,7 +330,13 @@
       await selectGroup(firstGroup.id);
     }
   });
+
+  onDestroy(() => {
+    focusController?.destroy();
+  });
 </script>
+
+<svelte:window on:keydown={(e) => { if (e.key === 'F11') { e.preventDefault(); toggleFocusMode(); } }} />
 
 <svelte:head>
   <title>My MD Reader</title>
@@ -332,7 +351,7 @@
   on:change={handleLocalImport}
 />
 
-<div class="app-shell" use:dropImport={{ onDrop: handleDroppedFiles, onDragChange: (v) => (dragging = v) }}>
+<div class="app-shell" class:focus-active={focusMode} use:dropImport={{ onDrop: handleDroppedFiles, onDragChange: (v) => (dragging = v) }}>
   {#if dragging}
     <div class="drop-overlay">
       <div class="drop-prompt">
@@ -348,9 +367,10 @@
       <h1>My MD Reader</h1>
     </div>
     <div class="topbar-actions">
-      <span class:offline={!online} class="network">{online ? 'Online' : 'Offline'}</span>
+      <span class:offline={!online} class="network-dot" title={online ? 'Online' : 'Offline'}></span>
       <button on:click={() => (showDirectory = !showDirectory)}>Directory</button>
       <button on:click={() => (showSettings = !showSettings)}>Settings</button>
+      <button class="focus-btn" on:click={toggleFocusMode}>Focus</button>
     </div>
   </header>
 
@@ -434,6 +454,14 @@
     <button class="mobile-backdrop" on:click={() => { showDirectory = false; showSettings = false; }} aria-label="Close panel"></button>
   {/if}
 
+  {#if focusMode}
+    <button class="exit-focus" on:click={toggleFocusMode} title="Exit focus mode">
+      <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+        <path d="M4 11H1v6h6v-3M14 7h3V1h-6v3M7 1L1 7M11 17l6-6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+    </button>
+  {/if}
+
   <div class="mobile-fab-group">
     <button class="mobile-fab" class:active={showDirectory} on:click={() => { showDirectory = !showDirectory; if (showDirectory) showSettings = false; }} aria-label="Toggle directory">
       <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M3 4h14M3 8h14M3 12h10M3 16h10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
@@ -479,8 +507,7 @@
     align-items: center;
   }
 
-  .topbar-actions button,
-  .network {
+  .topbar-actions button {
     border-radius: 999px;
     border: 1px solid var(--border-light);
     padding: 0.5rem 1rem;
@@ -494,10 +521,89 @@
     background: var(--bg-hover);
   }
 
-  .network.offline {
-    background: var(--danger-soft);
-    color: var(--danger-text);
-    border-color: transparent;
+  .network-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: #22c55e;
+    flex-shrink: 0;
+  }
+
+  .network-dot.offline {
+    background: #9ca3af;
+  }
+
+  .focus-btn {
+    display: none;
+  }
+
+  @media (min-width: 1101px) {
+    .focus-btn {
+      display: inline-flex;
+      border-radius: 999px;
+      border: 1px solid var(--border-light);
+      padding: 0.5rem 1rem;
+      background: var(--bg-panel);
+      color: var(--text-main);
+      font-size: 0.875rem;
+      font-weight: 500;
+      cursor: pointer;
+    }
+
+    .focus-btn:hover {
+      background: var(--bg-hover);
+    }
+  }
+
+  .focus-active .topbar,
+  .focus-active .notice,
+  .focus-active .mobile-fab-group,
+  .focus-active .mobile-backdrop {
+    display: none;
+  }
+
+  .focus-active .layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .focus-active .left-column,
+  .focus-active .right-column {
+    display: none;
+  }
+
+  .focus-active {
+    padding: 0;
+  }
+
+  .focus-active .reader-column {
+    max-width: 52rem;
+    margin: 0 auto;
+    padding: 2rem 1.5rem;
+  }
+
+  .exit-focus {
+    position: fixed;
+    bottom: 1.5rem;
+    right: 1.5rem;
+    z-index: 300;
+    width: 2.75rem;
+    height: 2.75rem;
+    border-radius: 50%;
+    border: 1px solid var(--border-light);
+    background: var(--bg-panel);
+    color: var(--text-muted);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: var(--shadow-md);
+    cursor: pointer;
+    opacity: 0.4;
+    transition: opacity 0.2s;
+  }
+
+  .exit-focus:hover {
+    opacity: 1;
+    color: var(--text-main);
   }
 
   .notice {
@@ -708,7 +814,7 @@
   }
 
   @media (min-width: 1101px) {
-    .topbar-actions button {
+    .topbar-actions button:not(.focus-btn) {
       display: none;
     }
   }
