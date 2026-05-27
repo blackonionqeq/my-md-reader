@@ -314,6 +314,46 @@
     focusController.toggle();
   }
 
+  async function handleLaunchQueue(): Promise<void> {
+    if (!('launchQueue' in window)) {
+      return;
+    }
+
+    (window as any).launchQueue.setConsumer(async (launchParams: any) => {
+      const handles: FileSystemFileHandle[] = launchParams.files ?? [];
+      if (handles.length === 0) {
+        return;
+      }
+
+      const files: File[] = [];
+      for (const handle of handles) {
+        const file = await handle.getFile();
+        if (file.name.endsWith('.md')) {
+          files.push(file);
+        }
+      }
+
+      if (files.length === 0) {
+        return;
+      }
+
+      if (files.length === 1) {
+        const tempArticle = await openSingleLocalFile(files[0]!);
+        selectedArticle = tempArticle;
+        selectedArticleId = tempArticle.id;
+        readingState = null;
+        outline = [];
+        setMessage(`Opened "${tempArticle.title}" from file handler. Import it when ready.`);
+        return;
+      }
+
+      const groupId = await importLocalFiles(files);
+      await refreshGroups();
+      await selectGroup(groupId);
+      setMessage(`Imported ${files.length} markdown files into your bookshelf.`);
+    });
+  }
+
   onMount(async () => {
     applyTheme(settings.theme);
     await refreshGroups();
@@ -329,6 +369,8 @@
     if (firstGroup) {
       await selectGroup(firstGroup.id);
     }
+
+    await handleLaunchQueue();
   });
 
   onDestroy(() => {

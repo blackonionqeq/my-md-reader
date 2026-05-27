@@ -33,6 +33,14 @@ export default defineConfig({
             type: 'image/svg+xml',
             purpose: 'maskable'
           }
+        ],
+        file_handlers: [
+          {
+            action: '/',
+            accept: {
+              'text/markdown': ['.md']
+            }
+          }
         ]
       },
       workbox: {
