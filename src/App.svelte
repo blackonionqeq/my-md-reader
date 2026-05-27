@@ -618,7 +618,7 @@
   }
 
   .focus-active .reader-column {
-    max-width: 52rem;
+    width: 75vw;
     margin: 0 auto;
     padding: 2rem 1.5rem;
   }
