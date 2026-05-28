@@ -15,11 +15,13 @@
     loadReadingState,
     openSingleLocalFile,
     previewManifest,
+    previewUrlArticle,
     removeGroup,
     retryFailedArticles,
     saveManifestSource,
     saveReadingProgress,
     saveTemporaryArticle,
+    saveUrlArticle,
     toggleFavorite
   } from './lib/content-service';
   import { dropImport } from './lib/drop-import';
@@ -35,11 +37,13 @@
     ReaderSettings,
     ReadingState,
     TemporaryArticle,
-    ThemeMode
+    ThemeMode,
+    UrlArticlePreview
   } from './lib/types';
 
   let manifestUrl = '';
   let preview: ManifestPreview | null = null;
+  let urlPreview: UrlArticlePreview | null = null;
   let manifestBusy = false;
   let manifestError = '';
 
@@ -111,37 +115,49 @@
     readingState = (await loadReadingState(article.id)) ?? null;
   }
 
-  async function handleManifestPreview(): Promise<void> {
+  async function handleSourcePreview(): Promise<void> {
     manifestBusy = true;
     manifestError = '';
     preview = null;
+    urlPreview = null;
+
+    const url = manifestUrl.trim();
 
     try {
-      preview = await previewManifest(manifestUrl.trim());
-    } catch (error) {
-      manifestError = error instanceof Error ? error.message : 'Failed to preview manifest.';
+      preview = await previewManifest(url);
+    } catch {
+      try {
+        urlPreview = await previewUrlArticle(url);
+      } catch (error) {
+        manifestError = error instanceof Error ? error.message : 'Failed to fetch URL.';
+      }
     } finally {
       manifestBusy = false;
     }
   }
 
-  async function handleManifestSave(): Promise<void> {
-    if (!preview) {
-      return;
-    }
-
+  async function handleSourceSave(): Promise<void> {
     manifestBusy = true;
     manifestError = '';
 
     try {
-      await saveManifestSource(preview);
-      await refreshGroups();
-      await selectGroup(preview.group.id);
-      setMessage(`Added "${preview.group.title}" to the bookshelf.`);
-      preview = null;
-      manifestUrl = '';
+      if (urlPreview) {
+        const groupId = await saveUrlArticle(urlPreview);
+        await refreshGroups();
+        await selectGroup(groupId);
+        setMessage(`Imported "${urlPreview.title}" to the bookshelf.`);
+        urlPreview = null;
+        manifestUrl = '';
+      } else if (preview) {
+        await saveManifestSource(preview);
+        await refreshGroups();
+        await selectGroup(preview.group.id);
+        setMessage(`Added "${preview.group.title}" to the bookshelf.`);
+        preview = null;
+        manifestUrl = '';
+      }
     } catch (error) {
-      manifestError = error instanceof Error ? error.message : 'Failed to save manifest source.';
+      manifestError = error instanceof Error ? error.message : 'Failed to save source.';
     } finally {
       manifestBusy = false;
     }
@@ -300,6 +316,7 @@
     selectedArticleId = null;
     readingState = null;
     preview = null;
+    urlPreview = null;
     outline = [];
     setMessage('Local cache cleared.');
   }
@@ -433,13 +450,14 @@
       <AddSourceForm
         {manifestUrl}
         {preview}
+        {urlPreview}
         busy={manifestBusy}
         error={manifestError}
         onUrlChange={(value) => {
           manifestUrl = value;
         }}
-        onPreview={handleManifestPreview}
-        onSave={handleManifestSave}
+        onPreview={handleSourcePreview}
+        onSave={handleSourceSave}
       />
 
       <GroupDetail

@@ -1,8 +1,9 @@
 <script lang="ts">
-  import type { ManifestPreview } from '../lib/types';
+  import type { ManifestPreview, UrlArticlePreview } from '../lib/types';
 
   export let manifestUrl = '';
   export let preview: ManifestPreview | null = null;
+  export let urlPreview: UrlArticlePreview | null = null;
   export let busy = false;
   export let error = '';
   export let onUrlChange: (value: string) => void = () => {};
@@ -12,15 +13,15 @@
 
 <section class="card">
   <div class="section-head">
-    <h2>Add remote group</h2>
-    <p>Paste a `manifest.json` URL, preview it, then add it to the bookshelf.</p>
+    <h2>Add from URL</h2>
+    <p>Paste a markdown file URL or a `manifest.json` URL.</p>
   </div>
 
   <label>
-    <span>Manifest URL</span>
+    <span>URL</span>
     <input
       type="url"
-      placeholder="https://example.com/manifest.json"
+      placeholder="https://example.com/article.md"
       value={manifestUrl}
       on:input={(event) => onUrlChange((event.currentTarget as HTMLInputElement).value)}
     />
@@ -30,7 +31,7 @@
     <button class="secondary" on:click={onPreview} disabled={busy || !manifestUrl.trim()}>
       {busy ? 'Checking...' : 'Preview'}
     </button>
-    <button class="primary" on:click={onSave} disabled={busy || !preview}>
+    <button class="primary" on:click={onSave} disabled={busy || (!preview && !urlPreview)}>
       Add to shelf
     </button>
   </div>
@@ -47,6 +48,14 @@
         <p>{preview.group.description}</p>
       {/if}
       <small>{preview.manifestUrl}</small>
+    </div>
+  {/if}
+
+  {#if urlPreview}
+    <div class="preview">
+      <strong>{urlPreview.title}</strong>
+      <span>Single article</span>
+      <small>{urlPreview.url}</small>
     </div>
   {/if}
 </section>

@@ -1,20 +1,24 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import 'fake-indexeddb/auto';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   buildOfflineMarkdown,
   clearAllData,
   calculateGroupOfflineStatus,
   computeNextRetryAt,
   extractMarkdownImageUrls,
+  extractTitleFromMarkdown,
   importLocalFiles,
   loadArticles,
   loadGroups,
   openSingleLocalFile,
+  previewUrlArticle,
   removeGroup,
+  rewriteMarkdownImageUrls,
   saveTemporaryArticle,
-  rewriteMarkdownImageUrls
+  saveUrlArticle,
+  titleFromUrl
 } from './content-service';
 import { db } from './db';
 import type { Asset } from './types';
@@ -226,5 +230,145 @@ describe('clearAllData', () => {
     expect(await db.articles.toArray()).toHaveLength(0);
     expect(await db.readingStates.toArray()).toHaveLength(0);
     expect(await db.assets.toArray()).toHaveLength(0);
+  });
+});
+
+describe('extractTitleFromMarkdown', () => {
+  it('returns the first h1 heading text', () => {
+    expect(extractTitleFromMarkdown('# Hello World\n\nBody text.')).toBe('Hello World');
+  });
+
+  it('returns undefined when there is no heading', () => {
+    expect(extractTitleFromMarkdown('Just some plain text.')).toBeUndefined();
+  });
+
+  it('ignores h2 and deeper headings', () => {
+    expect(extractTitleFromMarkdown('## Sub Heading\n\nBody')).toBeUndefined();
+  });
+
+  it('picks the first heading when content has multiple', () => {
+    expect(extractTitleFromMarkdown('# First\n\n# Second')).toBe('First');
+  });
+
+  it('trims whitespace around the heading text', () => {
+    expect(extractTitleFromMarkdown('#   Padded Title   ')).toBe('Padded Title');
+  });
+});
+
+describe('titleFromUrl', () => {
+  it('extracts and humanizes a filename from the URL path', () => {
+    expect(titleFromUrl('https://example.com/my-great-article.md')).toBe('my great article');
+  });
+
+  it('strips the .md extension', () => {
+    expect(titleFromUrl('https://example.com/notes.md')).toBe('notes');
+  });
+
+  it('replaces underscores with spaces', () => {
+    expect(titleFromUrl('https://example.com/my_notes.md')).toBe('my notes');
+  });
+
+  it('returns fallback for URLs without a usable filename', () => {
+    expect(titleFromUrl('https://example.com/')).toBe('Imported article');
+  });
+
+  it('returns fallback for invalid URLs', () => {
+    expect(titleFromUrl('not-a-url')).toBe('Imported article');
+  });
+});
+
+describe('previewUrlArticle', () => {
+  const originalFetch = globalThis.fetch;
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  it('returns preview with title extracted from markdown heading', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      text: () => Promise.resolve('# My Article\n\nSome content here.')
+    });
+
+    const preview = await previewUrlArticle('https://example.com/article.md');
+
+    expect(preview.title).toBe('My Article');
+    expect(preview.url).toBe('https://example.com/article.md');
+    expect(preview.content).toBe('# My Article\n\nSome content here.');
+  });
+
+  it('falls back to filename from URL when no heading found', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      text: () => Promise.resolve('Just some text without a heading.')
+    });
+
+    const preview = await previewUrlArticle('https://example.com/my-notes.md');
+
+    expect(preview.title).toBe('my notes');
+  });
+
+  it('throws on network failure', async () => {
+    globalThis.fetch = vi.fn().mockRejectedValue(new Error('Network error'));
+
+    await expect(previewUrlArticle('https://example.com/fail.md'))
+      .rejects.toThrow('Failed to fetch URL');
+  });
+
+  it('throws on non-ok response', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 404,
+      statusText: 'Not Found'
+    });
+
+    await expect(previewUrlArticle('https://example.com/missing.md'))
+      .rejects.toThrow('404 Not Found');
+  });
+});
+
+describe('saveUrlArticle', () => {
+  it('persists a url article as a single-article group', async () => {
+    const preview = {
+      url: 'https://example.com/article.md',
+      title: 'Test Article',
+      content: '# Test Article\n\nBody text.'
+    };
+
+    const groupId = await saveUrlArticle(preview);
+
+    const groups = await loadGroups();
+    expect(groups).toHaveLength(1);
+    expect(groups[0]!.title).toBe('Test Article');
+    expect(groups[0]!.articleCount).toBe(1);
+    expect(groups[0]!.offlineStatus).toBe('downloaded');
+
+    const articles = await loadArticles(groupId);
+    expect(articles).toHaveLength(1);
+    expect(articles[0]!.title).toBe('Test Article');
+    expect(articles[0]!.url).toBe('https://example.com/article.md');
+    expect(articles[0]!.content).toBe('# Test Article\n\nBody text.');
+    expect(articles[0]!.downloadStatus).toBe('downloaded');
+
+    const sources = await db.sources.toArray();
+    expect(sources).toHaveLength(1);
+    expect(sources[0]!.type).toBe('url');
+    expect(sources[0]!.url).toBe('https://example.com/article.md');
+  });
+
+  it('can be removed after saving', async () => {
+    const groupId = await saveUrlArticle({
+      url: 'https://example.com/removable.md',
+      title: 'Removable',
+      content: '# Removable'
+    });
+
+    expect(await loadGroups()).toHaveLength(1);
+
+    await removeGroup(groupId);
+
+    expect(await loadGroups()).toHaveLength(0);
+    expect(await db.articles.toArray()).toHaveLength(0);
+    expect(await db.sources.toArray()).toHaveLength(0);
   });
 });

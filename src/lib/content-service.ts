@@ -8,7 +8,8 @@ import type {
   GroupListItem,
   ManifestPreview,
   ReadingState,
-  TemporaryArticle
+  TemporaryArticle,
+  UrlArticlePreview
 } from './types';
 
 const MAX_ASSET_RETRY_ATTEMPTS = 5;
@@ -340,6 +341,86 @@ async function fetchJson(url: string): Promise<unknown> {
   } catch (error) {
     throw new Error(`Manifest is not valid JSON: ${toErrorMessage(error)}`);
   }
+}
+
+export function extractTitleFromMarkdown(content: string): string | undefined {
+  const match = content.match(/^#\s+(.+)$/m);
+  return match?.[1]?.trim();
+}
+
+export function titleFromUrl(url: string): string {
+  try {
+    const pathname = new URL(url).pathname;
+    const filename = pathname.split('/').pop() ?? '';
+    return filename.replace(/\.md$/i, '').replace(/[-_]+/g, ' ').trim() || 'Imported article';
+  } catch {
+    return 'Imported article';
+  }
+}
+
+export async function previewUrlArticle(url: string): Promise<UrlArticlePreview> {
+  let response: Response;
+  try {
+    response = await fetch(url);
+  } catch (error) {
+    throw new Error(`Failed to fetch URL: ${toErrorMessage(error)}`);
+  }
+
+  if (!response.ok) {
+    throw new Error(`Request failed with ${response.status} ${response.statusText}.`);
+  }
+
+  const content = await response.text();
+  const title = extractTitleFromMarkdown(content) || titleFromUrl(url);
+  return { url, title, content };
+}
+
+export async function saveUrlArticle(preview: UrlArticlePreview): Promise<string> {
+  const groupId = createId('url-group');
+  const sourceId = `url:${groupId}`;
+  const articleId = `${groupId}:1`;
+  const now = new Date().toISOString();
+
+  const article: Article = {
+    id: articleId,
+    groupId,
+    order: 1,
+    title: preview.title,
+    url: preview.url,
+    content: preview.content,
+    downloadStatus: 'downloaded',
+    createdAt: now,
+    updatedAt: now
+  };
+
+  const offlineContent = await downloadArticleAssets(article, preview.content);
+
+  await db.transaction('rw', db.sources, db.groups, db.articles, async () => {
+    await db.sources.put({
+      id: sourceId,
+      type: 'url',
+      url: preview.url,
+      createdAt: now,
+      updatedAt: now
+    });
+
+    await db.groups.put({
+      id: groupId,
+      sourceId,
+      title: preview.title,
+      articleCount: 1,
+      offlineStatus: 'downloaded',
+      createdAt: now,
+      updatedAt: now
+    });
+
+    await db.articles.add({
+      ...article,
+      content: offlineContent
+    });
+  });
+
+  return groupId;
 }
 
 export async function previewManifest(manifestUrl: string): Promise<ManifestPreview> {

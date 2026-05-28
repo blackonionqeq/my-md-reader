@@ -1,4 +1,4 @@
-export type SourceType = 'manifest' | 'local';
+export type SourceType = 'manifest' | 'local' | 'url';
 export type OfflineStatus = 'not_downloaded' | 'partial' | 'downloaded';
 export type DownloadStatus = 'not_downloaded' | 'downloading' | 'downloaded' | 'failed';
 export type AssetStatus = 'pending' | 'downloading' | 'downloaded' | 'failed';
@@ -102,6 +102,12 @@ export interface TemporaryArticle {
   content: string;
   fileName: string;
   isTemporary: true;
+}
+
+export interface UrlArticlePreview {
+  url: string;
+  title: string;
+  content: string;
 }
 
 export type ReaderArticle = Article | TemporaryArticle;
