@@ -16,8 +16,9 @@ server {
 }
 
 server {
-    listen 443 ssl http2;
-    listen [::]:443 ssl http2;
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    http2 on;
     server_name __APP_DOMAIN__;
     include /etc/nginx/tmp.conf;
     limit_conn perip_conn 20;
