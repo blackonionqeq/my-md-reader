@@ -15,6 +15,11 @@ type MarkdownRenderer = {
 
 const MERMAID_ALIASES = new Set(['mermaid', 'mmd']);
 
+// DOMPurify's default allowlist rejects blob: URIs, which hydrated offline
+// images rely on (object URLs created from cached IndexedDB blobs).
+const ALLOWED_URI_REGEXP =
+  /^(?:(?:(?:f|ht)tps?|mailto|tel|callto|sms|cid|xmpp|matrix|blob):|[^a-z]|[a-z+.\-]+(?:[^a-z+.\-:]|$))/i;
+
 function escapeHtml(str: string): string {
   return str
     .replace(/&/g, '&amp;')
@@ -98,7 +103,7 @@ async function createRenderer(): Promise<MarkdownRenderer> {
   return {
     render(content: string): string {
       const rawHtml = markdown.render(content);
-      return DOMPurify.sanitize(rawHtml);
+      return DOMPurify.sanitize(rawHtml, { ALLOWED_URI_REGEXP });
     }
   };
 }
