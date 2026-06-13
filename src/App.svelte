@@ -54,6 +54,7 @@
   let selectedArticle: ReaderArticle | null = null;
   let selectedArticleId: string | null = null;
   let readingState: ReadingState | null = null;
+  let restoreScrollPosition = false;
   let settings: ReaderSettings = loadSettings();
   let fileInput: HTMLInputElement | null = null;
   let online = typeof navigator === 'undefined' ? true : navigator.onLine;
@@ -95,7 +96,7 @@
       ?? articles[0];
 
     if (defaultArticle) {
-      await openArticle(defaultArticle.id);
+      await openArticle(defaultArticle.id, { restoreScroll: true });
     } else {
       selectedArticle = null;
       selectedArticleId = null;
@@ -104,15 +105,34 @@
     }
   }
 
-  async function openArticle(articleId: string): Promise<void> {
+  async function openArticle(
+    articleId: string,
+    options: { restoreScroll?: boolean } = {}
+  ): Promise<void> {
     const article = articles.find((entry) => entry.id === articleId);
     if (!article) {
       return;
     }
 
-    selectedArticle = await hydrateArticleAssets(article);
+    // Resolve state before assigning the article so the reader renders with the
+    // matching reading state and scroll intent in a single flush, avoiding a
+    // stale readingState from the previously open article.
+    const nextReadingState = (await loadReadingState(article.id)) ?? null;
+    const nextArticle = await hydrateArticleAssets(article);
+    restoreScrollPosition = Boolean(options.restoreScroll);
+    readingState = nextReadingState;
+    selectedArticle = nextArticle;
     selectedArticleId = article.id;
-    readingState = (await loadReadingState(article.id)) ?? null;
+  }
+
+  async function handleSelectArticle(articleId: string): Promise<void> {
+    const switching = articleId !== selectedArticleId;
+    await openArticle(articleId);
+    // Dismiss the slide-over directory panel after switching articles so the
+    // reader is immediately visible (no-op on desktop where the column persists).
+    if (switching) {
+      showDirectory = false;
+    }
   }
 
   async function handleSourcePreview(): Promise<void> {
@@ -464,7 +484,7 @@
         group={selectedGroup}
         {articles}
         {selectedArticleId}
-        onSelectArticle={openArticle}
+        onSelectArticle={handleSelectArticle}
         onDownloadAll={handleDownloadAll}
         onRetryFailed={handleRetryFailed}
       />
@@ -474,6 +494,7 @@
       <ReaderPane
         article={selectedArticle}
         {readingState}
+        restoreScrollPosition={restoreScrollPosition}
         fontSize={settings.fontSize}
         {online}
         onSaveProgress={handleSaveProgress}

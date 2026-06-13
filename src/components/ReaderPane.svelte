@@ -2,11 +2,13 @@
   import { onMount, tick } from 'svelte';
   import { renderMarkdownToHtml, renderMermaidBlocks } from '../lib/markdown';
   import { collectHeadings } from '../lib/outline';
+  import { resolveScrollTarget } from '../lib/reader-scroll';
   import type { OutlineHeading, ReaderArticle, ReadingState, TemporaryArticle } from '../lib/types';
   import type { Viewer } from 'luma-peek';
 
   export let article: ReaderArticle | null = null;
   export let readingState: ReadingState | null = null;
+  export let restoreScrollPosition = false;
   export let fontSize = 18;
   export let online = true;
   export let onSaveProgress: (payload: {
@@ -56,11 +58,14 @@
       if (container) {
         await renderMermaidBlocks(container);
         onOutlineChange(collectHeadings(container));
-        if (readingState?.scrollPosition) {
-          container.scrollTop = readingState.scrollPosition;
-        } else {
-          container.scrollTop = 0;
-        }
+        container.scrollTop = resolveScrollTarget({
+          restoreScrollPosition,
+          savedPosition: readingState?.scrollPosition
+        });
+        // On narrow viewports the reader grows with its content (height: auto)
+        // and the page itself scrolls, so resetting the reader container is a
+        // no-op there — also scroll the window to the top of the new article.
+        window.scrollTo(0, 0);
       }
     } catch (error) {
       if (requestId !== renderRequestId) {
@@ -115,7 +120,7 @@
     });
   }
 
-  $: void article, refreshRenderedContent();
+  $: void article, restoreScrollPosition, refreshRenderedContent();
   $: if (fontSize && container) {
     container.style.setProperty('--reader-font-size', `${fontSize}px`);
   }
