@@ -17,6 +17,9 @@ importers:
       highlight.js:
         specifier: ^11.11.1
         version: 11.11.1
+      luma-peek:
+        specifier: ^0.1.0
+        version: 0.1.0
       markdown-it:
         specifier: ^14.1.0
         version: 14.1.1
@@ -2174,6 +2177,9 @@ packages:
 
   lru-cache@5.1.1:
     resolution: {integrity: sha512-KpNARQA3Iwv+jTA0utUVVbrh+Jlrr1Fv0e56GGzAFOXN7dk/FviaDW8LHmK52DlcH4WP2n6gI8vN1aesBFgo9w==}
+
+  luma-peek@0.1.0:
+    resolution: {integrity: sha512-YV6ifgLL1ccXW7ne+d3i4WcOq5NfQAF/DNXKaId7P4qVFXo/yAsc96357Ltr3i5QSrwNN0GW231q0e+ITwPDew==}
 
   magic-string@0.30.21:
     resolution: {integrity: sha512-vd2F4YUyEXKGcLHoq+TEyCjxueSeHnFxyyjNp80yg0XV4vUhnDer/lvvlqM/arB5bXQN5K2/3oinyCRyx8T2CQ==}
@@ -5069,6 +5075,8 @@ snapshots:
   lru-cache@5.1.1:
     dependencies:
       yallist: 3.1.1
+
+  luma-peek@0.1.0: {}
 
   magic-string@0.30.21:
     dependencies:

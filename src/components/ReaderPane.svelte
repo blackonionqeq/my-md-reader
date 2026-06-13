@@ -3,6 +3,7 @@
   import { renderMarkdownToHtml, renderMermaidBlocks } from '../lib/markdown';
   import { collectHeadings } from '../lib/outline';
   import type { OutlineHeading, ReaderArticle, ReadingState, TemporaryArticle } from '../lib/types';
+  import type { Viewer } from 'luma-peek';
 
   export let article: ReaderArticle | null = null;
   export let readingState: ReadingState | null = null;
@@ -23,6 +24,7 @@
   let loadError = '';
   let scrollTimer: number | undefined;
   let renderRequestId = 0;
+  let imageViewer: Viewer | null = null;
 
   function isTemporaryArticle(value: ReaderArticle | null): value is TemporaryArticle {
     return Boolean(value && 'isTemporary' in value);
@@ -93,6 +95,26 @@
     scrollTimer = window.setTimeout(() => persistProgress(), 200);
   }
 
+  async function handleContentClick(event: MouseEvent): Promise<void> {
+    const target = event.target;
+    if (!(target instanceof HTMLImageElement) || !container) {
+      return;
+    }
+
+    event.preventDefault();
+
+    const images = Array.from(container.querySelectorAll('img'));
+    if (!imageViewer) {
+      const { createViewer } = await import('luma-peek');
+      imageViewer = createViewer();
+    }
+
+    imageViewer.open({
+      items: images.map((img) => (img.alt ? { src: img.src, alt: img.alt } : { src: img.src })),
+      startIndex: Math.max(0, images.indexOf(target))
+    });
+  }
+
   $: void article, refreshRenderedContent();
   $: if (fontSize && container) {
     container.style.setProperty('--reader-font-size', `${fontSize}px`);
@@ -103,6 +125,8 @@
       window.clearTimeout(scrollTimer);
     }
     persistProgress();
+    imageViewer?.destroy();
+    imageViewer = null;
   });
 </script>
 
@@ -134,10 +158,12 @@
       {#if loadError}
         <p class="error">Markdown render fallback: {loadError}</p>
       {/if}
+      <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_noninteractive_element_interactions -->
       <article
         class="reader"
         bind:this={container}
         on:scroll={handleScroll}
+        on:click={handleContentClick}
         style={`--reader-font-size:${fontSize}px;`}
       >
         {@html renderedHtml}
@@ -267,6 +293,7 @@
     max-width: 100%;
     border-radius: 0.5rem;
     margin: 1.5rem 0;
+    cursor: zoom-in;
   }
 
   .reader :global(blockquote) {
@@ -317,6 +344,7 @@
     .reader {
       height: auto;
       min-height: 55vh;
+      padding: 1.25rem 1rem;
     }
 
     .reader-header {

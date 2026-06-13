@@ -873,6 +873,12 @@
     }
   }
 
+  @media (max-width: 900px) {
+    .app-shell {
+      padding: 0.75rem;
+    }
+  }
+
   @media (min-width: 1101px) {
     .topbar-actions button:not(.focus-btn) {
       display: none;
