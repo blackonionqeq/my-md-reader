@@ -61,8 +61,9 @@
   let outline: OutlineHeading[] = [];
   let message = '';
   let messageTone: 'info' | 'error' = 'info';
-  let showSettings = false;
+  let showOutline = false;
   let showDirectory = false;
+  let showAddForm = false;
   let dragging = false;
   let focusMode = false;
   let focusController: FocusModeController | null = null;
@@ -448,7 +449,7 @@
     <div class="topbar-actions">
       <span class:offline={!online} class="network-dot" title={online ? 'Online' : 'Offline'}></span>
       <button on:click={() => (showDirectory = !showDirectory)}>Directory</button>
-      <button on:click={() => (showSettings = !showSettings)}>Settings</button>
+      <button on:click={() => (showOutline = !showOutline)}>Outline</button>
       <button class="focus-btn" on:click={toggleFocusMode}>Focus</button>
     </div>
   </header>
@@ -467,18 +468,24 @@
         onRemoveGroup={handleRemoveGroup}
       />
 
-      <AddSourceForm
-        {manifestUrl}
-        {preview}
-        {urlPreview}
-        busy={manifestBusy}
-        error={manifestError}
-        onUrlChange={(value) => {
-          manifestUrl = value;
-        }}
-        onPreview={handleSourcePreview}
-        onSave={handleSourceSave}
-      />
+      <button class="drawer-toggle" on:click={() => (showAddForm = !showAddForm)}>
+        <span>Add from URL</span>
+        <span class="chevron" class:open={showAddForm}>&#9656;</span>
+      </button>
+      {#if showAddForm}
+        <AddSourceForm
+          {manifestUrl}
+          {preview}
+          {urlPreview}
+          busy={manifestBusy}
+          error={manifestError}
+          onUrlChange={(value) => {
+            manifestUrl = value;
+          }}
+          onPreview={handleSourcePreview}
+          onSave={handleSourceSave}
+        />
+      {/if}
 
       <GroupDetail
         group={selectedGroup}
@@ -488,6 +495,18 @@
         onDownloadAll={handleDownloadAll}
         onRetryFailed={handleRetryFailed}
       />
+
+      <details class="settings-drawer">
+        <summary>Settings</summary>
+        <div class="settings-content">
+          <SettingsPanel
+            {settings}
+            onThemeChange={handleThemeChange}
+            onFontSizeChange={handleFontSizeChange}
+            onClearData={handleClearData}
+          />
+        </div>
+      </details>
     </aside>
 
     <section class="reader-column">
@@ -506,14 +525,7 @@
       />
     </section>
 
-    <aside class:panel-hidden={!showSettings} class="right-column">
-      <SettingsPanel
-        {settings}
-        onThemeChange={handleThemeChange}
-        onFontSizeChange={handleFontSizeChange}
-        onClearData={handleClearData}
-      />
-
+    <aside class:panel-hidden={!showOutline} class="right-column">
       <section class="outline-card">
         <h2>Outline</h2>
         {#if outline.length > 0}
@@ -531,8 +543,8 @@
     </aside>
   </main>
 
-  {#if showDirectory || showSettings}
-    <button class="mobile-backdrop" on:click={() => { showDirectory = false; showSettings = false; }} aria-label="Close panel"></button>
+  {#if showDirectory || showOutline}
+    <button class="mobile-backdrop" on:click={() => { showDirectory = false; showOutline = false; }} aria-label="Close panel"></button>
   {/if}
 
   {#if focusMode}
@@ -544,11 +556,11 @@
   {/if}
 
   <div class="mobile-fab-group">
-    <button class="mobile-fab" class:active={showDirectory} on:click={() => { showDirectory = !showDirectory; if (showDirectory) showSettings = false; }} aria-label="Toggle directory">
+    <button class="mobile-fab" class:active={showDirectory} on:click={() => { showDirectory = !showDirectory; if (showDirectory) showOutline = false; }} aria-label="Toggle directory">
       <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M3 4h14M3 8h14M3 12h10M3 16h10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
     </button>
-    <button class="mobile-fab" class:active={showSettings} on:click={() => { showSettings = !showSettings; if (showSettings) showDirectory = false; }} aria-label="Toggle settings">
-      <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M10 12.5a2.5 2.5 0 100-5 2.5 2.5 0 000 5z" stroke="currentColor" stroke-width="1.5"/><path d="M16.2 12.2a1.2 1.2 0 00.2 1.3l.04.04a1.5 1.5 0 11-2.12 2.12l-.04-.04a1.2 1.2 0 00-1.3-.2 1.2 1.2 0 00-.73 1.1v.1a1.5 1.5 0 11-3 0v-.06a1.2 1.2 0 00-.78-1.1 1.2 1.2 0 00-1.3.2l-.04.04a1.5 1.5 0 11-2.12-2.12l.04-.04a1.2 1.2 0 00.2-1.3 1.2 1.2 0 00-1.1-.73h-.1a1.5 1.5 0 110-3h.06a1.2 1.2 0 001.1-.78 1.2 1.2 0 00-.2-1.3l-.04-.04A1.5 1.5 0 117.05 4.22l.04.04a1.2 1.2 0 001.3.2h.06a1.2 1.2 0 00.73-1.1v-.1a1.5 1.5 0 113 0v.06a1.2 1.2 0 00.78 1.1 1.2 1.2 0 001.3-.2l.04-.04a1.5 1.5 0 112.12 2.12l-.04.04a1.2 1.2 0 00-.2 1.3v.06a1.2 1.2 0 001.1.73h.1a1.5 1.5 0 110 3h-.06a1.2 1.2 0 00-1.1.78z" stroke="currentColor" stroke-width="1.5"/></svg>
+    <button class="mobile-fab" class:active={showOutline} on:click={() => { showOutline = !showOutline; if (showOutline) showDirectory = false; }} aria-label="Toggle outline">
+      <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M3 4h14M5 8h12M7 12h10M5 16h12" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
     </button>
   </div>
 </div>
@@ -556,6 +568,10 @@
 <style>
   .app-shell {
     padding: 1.25rem;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
   }
 
   .topbar {
@@ -689,36 +705,52 @@
 
   .notice {
     margin: 0 0 1rem;
-    padding: 0.8rem 1rem;
-    border-radius: 0.75rem;
-    font-size: 0.95rem;
+    padding: 0.75rem 1rem;
+    border-radius: 0.5rem;
+    font-size: 0.9rem;
+    border-left: 3px solid transparent;
   }
 
   .notice.info {
     background: var(--accent-soft);
+    border-left-color: var(--accent);
     color: var(--text-main);
   }
 
   .notice.error {
     background: var(--danger-soft);
+    border-left-color: var(--danger);
     color: var(--danger-text);
   }
 
   .layout {
+    flex: 1;
+    min-height: 0;
     display: grid;
-    grid-template-columns: minmax(18rem, 20rem) minmax(0, 1fr) minmax(15rem, 18rem);
+    grid-template-columns: minmax(18rem, 20rem) minmax(0, 1fr) minmax(14rem, 16rem);
+    grid-template-rows: minmax(0, 1fr);
     gap: 1.5rem;
-    align-items: start;
   }
 
-  .left-column,
+  .left-column {
+    display: grid;
+    gap: 0.75rem;
+    min-height: 0;
+    overflow-y: auto;
+    align-content: start;
+  }
+
   .right-column {
     display: grid;
     gap: 1.5rem;
+    min-height: 0;
+    overflow-y: auto;
+    align-content: start;
   }
 
   .reader-column {
     min-width: 0;
+    min-height: 0;
   }
 
   .outline-card {
@@ -770,6 +802,83 @@
     margin-top: 0.5rem;
   }
 
+  .drawer-toggle {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    width: 100%;
+    padding: 0.75rem 1.25rem;
+    border-radius: 0.75rem;
+    border: 1px solid var(--border-light);
+    background: var(--bg-panel);
+    color: var(--text-muted);
+    font-size: 0.9rem;
+    font-weight: 500;
+  }
+
+  .drawer-toggle:hover {
+    background: var(--bg-hover);
+    color: var(--text-main);
+  }
+
+  .chevron {
+    display: inline-block;
+    transition: transform 0.2s ease;
+    font-size: 0.75rem;
+  }
+
+  .chevron.open {
+    transform: rotate(90deg);
+  }
+
+  .settings-drawer {
+    border-radius: 0.75rem;
+    border: 1px solid var(--border-light);
+    background: var(--bg-panel);
+    overflow: hidden;
+  }
+
+  .settings-drawer summary {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.75rem 1.25rem;
+    font-size: 0.9rem;
+    font-weight: 500;
+    color: var(--text-muted);
+    cursor: pointer;
+    list-style: none;
+  }
+
+  .settings-drawer summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .settings-drawer summary::before {
+    content: '▸';
+    font-size: 0.75rem;
+    transition: transform 0.2s ease;
+  }
+
+  .settings-drawer[open] summary::before {
+    transform: rotate(90deg);
+  }
+
+  .settings-drawer summary:hover {
+    background: var(--bg-hover);
+    color: var(--text-main);
+  }
+
+  .settings-content {
+    padding: 0 0.25rem 0.25rem;
+  }
+
+  .settings-content :global(.card) {
+    border: none;
+    box-shadow: none;
+    border-radius: 0 0 0.75rem 0.75rem;
+  }
+
   .drop-overlay {
     position: fixed;
     inset: 0;
@@ -817,6 +926,11 @@
   }
 
   @media (max-width: 1100px) {
+    .app-shell {
+      height: auto;
+      overflow: visible;
+    }
+
     .layout {
       grid-template-columns: minmax(0, 1fr);
     }

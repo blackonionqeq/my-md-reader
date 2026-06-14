@@ -18,8 +18,8 @@
         <p>{group.description || 'Group directory'}</p>
       </div>
       <div class="actions">
-        <button class="secondary" on:click={onDownloadAll}>Download all</button>
-        <button class="chip" on:click={onRetryFailed}>Retry failed</button>
+        <button class="primary" on:click={onDownloadAll}>Download all</button>
+        <button class="secondary" on:click={onRetryFailed}>Retry failed</button>
       </div>
     </div>
 
@@ -103,22 +103,22 @@
     font-weight: 500;
   }
 
-  .secondary {
+  .primary {
     background: var(--accent);
     color: white;
   }
 
-  .secondary:hover {
+  .primary:hover {
     background: var(--accent-hover);
   }
 
-  .chip {
+  .secondary {
     background: var(--bg-app);
     color: var(--text-main);
     border-color: var(--border-light) !important;
   }
 
-  .chip:hover {
+  .secondary:hover {
     background: var(--bg-hover);
   }
 

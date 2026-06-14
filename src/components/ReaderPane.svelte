@@ -185,6 +185,7 @@
 <style>
   .reader-shell {
     min-height: 0;
+    height: 100%;
     display: grid;
     grid-template-rows: auto minmax(0, 1fr);
   }
@@ -197,15 +198,21 @@
     margin-bottom: 1rem;
   }
 
-  .reader-header small,
   .empty p,
   .error {
     color: var(--text-muted);
   }
 
+  .reader-header small {
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-muted);
+  }
+
   .reader-header h1 {
     font-size: clamp(1.5rem, 3vw, 2.2rem);
-    margin: 0.25rem 0 0;
+    margin: 0.5rem 0 0;
     font-family: var(--font-serif);
   }
 
@@ -216,11 +223,11 @@
 
   .actions button {
     border: 1px solid var(--border-light);
-    border-radius: 999px;
-    padding: 0.5rem 1rem;
-    background: var(--bg-panel);
+    border-radius: 0.5rem;
+    padding: 0.45rem 0.9rem;
+    background: var(--bg-app);
     color: var(--text-main);
-    font-size: 0.875rem;
+    font-size: 0.85rem;
     font-weight: 500;
   }
 
@@ -246,7 +253,6 @@
 
   .reader {
     min-height: 0;
-    height: calc(100vh - 13rem);
     overflow: auto;
     padding: 2.5rem 3rem;
     border-radius: 1rem;

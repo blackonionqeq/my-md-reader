@@ -78,7 +78,7 @@
 
   .chip {
     border: 1px solid var(--border-light);
-    border-radius: 999px;
+    border-radius: 0.5rem;
     background: var(--bg-app);
     padding: 0.4rem 0.75rem;
     color: var(--text-main);
