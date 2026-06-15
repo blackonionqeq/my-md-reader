@@ -9,11 +9,15 @@
   export let onUrlChange: (value: string) => void = () => {};
   export let onPreview: () => void = () => {};
   export let onSave: () => void = () => {};
+  export let onManifestHelp: () => void = () => {};
 </script>
 
 <section class="card">
   <div class="section-head">
-    <h2>Add from URL</h2>
+    <div class="section-head-row">
+      <h2>Add from URL</h2>
+      <button class="help-btn" on:click={onManifestHelp} title="Manifest format help">?</button>
+    </div>
     <p>Paste a markdown file URL or a `manifest.json` URL.</p>
   </div>
 
@@ -69,9 +73,39 @@
     box-shadow: var(--shadow-sm);
   }
 
+  .section-head-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
   .section-head h2 {
     font-size: 1.1rem;
     margin-bottom: 0.25rem;
+  }
+
+  .help-btn {
+    width: 1.5rem;
+    height: 1.5rem;
+    border-radius: 50%;
+    border: 1px solid var(--border-light);
+    background: var(--bg-app);
+    color: var(--text-muted);
+    font-size: 0.8rem;
+    font-weight: 600;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    flex-shrink: 0;
+    line-height: 1;
+    padding: 0;
+  }
+
+  .help-btn:hover {
+    background: var(--bg-hover);
+    color: var(--accent);
+    border-color: var(--accent);
   }
 
   .section-head p {

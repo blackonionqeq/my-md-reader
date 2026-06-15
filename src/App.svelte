@@ -3,6 +3,7 @@
   import AddSourceForm from './components/AddSourceForm.svelte';
   import Bookshelf from './components/Bookshelf.svelte';
   import GroupDetail from './components/GroupDetail.svelte';
+  import ManifestHelpDialog from './components/ManifestHelpDialog.svelte';
   import ReaderPane from './components/ReaderPane.svelte';
   import SettingsPanel from './components/SettingsPanel.svelte';
   import {
@@ -64,6 +65,7 @@
   let showOutline = false;
   let showDirectory = false;
   let showAddForm = false;
+  let showManifestHelp = false;
   let dragging = false;
   let focusMode = false;
   let focusController: FocusModeController | null = null;
@@ -484,6 +486,7 @@
           }}
           onPreview={handleSourcePreview}
           onSave={handleSourceSave}
+          onManifestHelp={() => (showManifestHelp = true)}
         />
       {/if}
 
@@ -563,6 +566,8 @@
       <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M3 4h14M5 8h12M7 12h10M5 16h12" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
     </button>
   </div>
+
+  <ManifestHelpDialog open={showManifestHelp} onClose={() => (showManifestHelp = false)} />
 </div>
 
 <style>
