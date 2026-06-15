@@ -46,3 +46,4 @@ Thumbs.db
 # Local temporary files
 .superpowers/
 tempnpm-cache/
+tmp/
