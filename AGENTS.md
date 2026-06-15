@@ -2,85 +2,71 @@
 
 ## Project Purpose
 
-This repository contains a lightweight offline-first Markdown reader built with Svelte 5, Vite, Dexie, and `vite-plugin-pwa`.
+Lightweight offline-first Markdown reader built with Svelte 5, Vite 8, Dexie, and `vite-plugin-pwa`.
 
 Primary user flows:
 
 - Add a remote Markdown collection from a `manifest.json` URL.
-- Download a group of Markdown articles into IndexedDB for offline reading.
-- Open a local `.md` file temporarily or import multiple local files into the bookshelf.
-- Read cached content, preserve reading progress, and toggle favorites.
+- Import a single article from a raw `.md` URL.
+- Download a group of Markdown articles into IndexedDB for offline reading (including images).
+- Open a local `.md` file temporarily, or import multiple local files into the bookshelf.
+- Drag-and-drop `.md` files onto the app (desktop only).
+- Read cached content with Mermaid diagram support, preserve reading progress, toggle favorites, enter focus mode.
 
-## Main Runtime Entry Points
+## Architecture
 
-- `src/main.ts`: mounts the Svelte app.
-- `src/App.svelte`: top-level state orchestration, bookshelf selection, manifest flow, local import flow, and settings panel visibility.
-- `src/components/ReaderPane.svelte`: article rendering, outline extraction, scroll persistence, favorite toggle, temporary-article import action.
-- `src/components/Bookshelf.svelte`: group list and bookshelf actions.
-- `src/components/GroupDetail.svelte`: article directory, download state, retry state.
-- `src/components/AddSourceForm.svelte`: manifest URL input, preview, and save flow.
-- `src/components/SettingsPanel.svelte`: theme, font-size, and clear-data actions.
+`App.svelte` orchestrates all top-level state and delegates to these layers:
 
-## Data And Service Layer
+- **Service layer** (`src/lib/content-service.ts`): all persistence, download, retry, and import logic. Prefer changing this file for behavior changes before pushing logic into components.
+- **Database** (`src/lib/db.ts`): Dexie schema (currently v2) with tables: `sources`, `groups`, `articles`, `readingStates`, `assets`.
+- **Rendering** (`src/lib/markdown.ts`): lazy-loaded pipeline — `markdown-it` + `highlight.js` (selective language imports) + `dompurify` + `mermaid`. All heavy dependencies stay out of the initial bundle.
+- **Components**: `ReaderPane`, `Bookshelf`, `GroupDetail`, `AddSourceForm`, `SettingsPanel`, `UpdatePrompt`.
 
-- `src/lib/content-service.ts`: main application service layer. Handles manifest preview/save, group download, retries, local file import, reading progress persistence, and favorites.
-- `src/lib/db.ts`: Dexie schema and IndexedDB tables.
-- `src/lib/manifest.ts`: manifest validation and URL resolution helpers.
-- `src/lib/markdown.ts`: async Markdown rendering pipeline. Dynamically loads `markdown-it`, `highlight.js`, and `dompurify` so the rendering stack stays out of the initial bundle.
-- `src/lib/outline.ts`: extracts headings from rendered article content.
-- `src/lib/settings.ts`: local settings persistence and theme application.
-- `src/lib/types.ts`: shared app types for groups, articles, previews, settings, and reader state.
+### Offline image caching
 
-## Content Flow
+When articles are downloaded, `content-service.ts` extracts image URLs from Markdown, fetches blobs into the `assets` table, and rewrites image references to `mdr-asset://` placeholders. On read, `hydrateArticleAssets` converts placeholders to `blob:` object URLs. The asset system has a retry queue with exponential backoff (up to 5 attempts).
 
-Remote manifest flow:
+### Content flows
 
-1. User enters a manifest URL in `AddSourceForm`.
-2. `App.svelte` calls `previewManifest` in `content-service.ts`.
-3. Manifest data is validated and normalized through `manifest.ts`.
-4. Saving persists source, group, and article metadata into Dexie.
-5. Download actions fetch article Markdown and store it in IndexedDB.
-6. `ReaderPane.svelte` renders cached Markdown into sanitized HTML on demand.
+**Manifest flow**: `AddSourceForm` → `previewManifest` → validate/normalize → save source + group + articles to Dexie → download articles + assets → render in `ReaderPane`.
 
-Local file flow:
+**URL flow**: paste a raw `.md` URL → `previewUrlArticle` fetches and extracts title → `saveUrlArticle` persists as a single-article group with downloaded assets.
 
-1. User selects one or more local `.md` files.
-2. Single-file selection becomes a temporary in-memory article.
-3. Multi-file selection is imported into Dexie as a local group.
-4. Temporary articles can be persisted into the bookshelf through the reader UI.
+**Local file flow**: single file becomes a temporary in-memory article; multiple files are imported as a local group. Drag-and-drop uses the same paths via `drop-import.ts`.
 
-Reading flow:
+**Reading flow**: `App.svelte` selects group/article → `hydrateArticleAssets` resolves offline images → `ReaderPane` renders HTML, extracts headings, renders Mermaid blocks → scroll position and favorites persisted through `content-service.ts`.
 
-1. `App.svelte` selects a group and article.
-2. The article record is passed into `ReaderPane.svelte`.
-3. `ReaderPane.svelte` lazily renders Markdown HTML and extracts headings.
-4. Scroll position and favorite state are persisted through `content-service.ts`.
-
-## Build And Test Commands
+## Build and Test Commands
 
 - Install: `pnpm install`
-- Type and Svelte checks: `pnpm check`
-- Unit tests: `pnpm test:unit`
-- Production build: `pnpm build`
-- Local preview: `pnpm preview`
 - Dev server: `pnpm dev`
+- Production build: `pnpm build`
+- Type and Svelte checks: `pnpm check`
+- All tests: `pnpm test` or `pnpm test:unit`
+- Single test file: `pnpm test -- src/lib/manifest.test.ts`
+- Tests use vitest with jsdom environment and `fake-indexeddb`.
 
 ## Performance Notes
 
-- The Markdown rendering stack is intentionally lazy-loaded to keep the startup bundle smaller.
-- `vite.config.ts` uses explicit chunk grouping for the Markdown stack, Dexie storage layer, and Svelte runtime.
-- If you add heavy reader-only dependencies, keep them behind the same lazy boundary unless they are needed on app startup.
+- The Markdown rendering stack (`markdown-it`, `highlight.js`, `dompurify`) is intentionally lazy-loaded via dynamic imports.
+- Mermaid is separately lazy-loaded only when `pre.mermaid` blocks exist in rendered content.
+- `vite.config.ts` uses Vite 8's `rolldownOptions` with explicit chunk groups for the markdown stack, Dexie, and Svelte runtime.
+- Workbox runtime-caches mermaid chunks with a `CacheFirst` strategy.
+- If you add heavy reader-only dependencies, keep them behind the same lazy boundary.
 
 ## Editing Guidance
 
-- Prefer changing `content-service.ts` for behavior changes before pushing logic into Svelte components.
 - Keep `App.svelte` focused on orchestration; avoid moving storage or parsing logic into it.
-- If you change manifest shape or persistence behavior, update tests in `src/lib/*.test.ts`.
+- If you change manifest shape, persistence behavior, or asset handling, update tests in `src/lib/*.test.ts`.
 - Preserve the raw-Markdown fallback in `ReaderPane.svelte` when render failures happen.
-- Avoid reintroducing Playwright unless the project explicitly needs browser automation again.
+- DOMPurify is configured with a custom `ALLOWED_URI_REGEXP` that permits `blob:` URIs for offline images — don't remove that.
+- The `assets` table migration (v1→v2) adds `nextRetryAt` and `updatedAt` indexes; new schema changes need a v3 migration in `db.ts`.
+- Avoid reintroducing Playwright unless the project explicitly needs browser automation.
 - When generating commit messages, use gitmoji.
 
 ## Existing Specs
 
 - `docs/superpowers/specs/2026-05-16-md-reader-pwa-design.md`: initial product and architecture spec.
 - `docs/superpowers/specs/2026-05-16-bundle-splitting-llm-doc-design.md`: bundle splitting and agent-document spec.
+- `docs/superpowers/specs/2026-05-17-deployment-and-nginx-design.md`: deployment and nginx configuration spec.
+- `docs/superpowers/specs/2026-05-17-offline-image-caching-design.md`: offline image caching design spec.
