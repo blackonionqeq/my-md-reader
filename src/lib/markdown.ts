@@ -34,7 +34,8 @@ async function createRenderer(): Promise<MarkdownRenderer> {
   const [markdownItModule, highlightCoreModule, domPurifyModule] = await Promise.all([
     import('markdown-it') as Promise<MarkdownItModule>,
     import('highlight.js/lib/core') as Promise<HighlightCoreModule>,
-    import('dompurify') as Promise<DomPurifyModule>
+    import('dompurify') as Promise<DomPurifyModule>,
+    import('highlight.js/styles/github.css')
   ]);
 
   const MarkdownIt = markdownItModule.default;
@@ -47,6 +48,7 @@ async function createRenderer(): Promise<MarkdownRenderer> {
     import('highlight.js/lib/languages/json') as Promise<HighlightLanguageModule>,
     import('highlight.js/lib/languages/markdown') as Promise<HighlightLanguageModule>,
     import('highlight.js/lib/languages/plaintext') as Promise<HighlightLanguageModule>,
+    import('highlight.js/lib/languages/rust') as Promise<HighlightLanguageModule>,
     import('highlight.js/lib/languages/sql') as Promise<HighlightLanguageModule>,
     import('highlight.js/lib/languages/typescript') as Promise<HighlightLanguageModule>,
     import('highlight.js/lib/languages/xml') as Promise<HighlightLanguageModule>,
@@ -59,6 +61,7 @@ async function createRenderer(): Promise<MarkdownRenderer> {
     ['json', ['json']],
     ['markdown', ['markdown', 'md']],
     ['plaintext', ['plaintext', 'text', 'txt']],
+    ['rust', ['rust', 'rs']],
     ['sql', ['sql']],
     ['typescript', ['typescript', 'ts', 'tsx']],
     ['xml', ['xml', 'html', 'svg']],
