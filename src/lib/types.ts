@@ -71,6 +71,11 @@ export interface ReaderSettings {
   fontSize: number;
 }
 
+export interface LastOpened {
+  groupId: string;
+  articleId: string;
+}
+
 export interface ManifestArticleInput {
   id: string;
   order?: number;

@@ -27,7 +27,7 @@
   } from './lib/content-service';
   import { dropImport } from './lib/drop-import';
   import type { FocusModeController } from './lib/focus-mode';
-  import { applyTheme, loadSettings, normalizeFontSize, saveSettings } from './lib/settings';
+  import { applyTheme, clearLastOpened, loadLastOpened, loadSettings, normalizeFontSize, saveLastOpened, saveSettings } from './lib/settings';
   import type {
     Article,
     Group,
@@ -126,6 +126,10 @@
     readingState = nextReadingState;
     selectedArticle = nextArticle;
     selectedArticleId = article.id;
+
+    if (selectedGroupId) {
+      saveLastOpened(selectedGroupId, article.id);
+    }
   }
 
   async function handleSelectArticle(articleId: string): Promise<void> {
@@ -305,6 +309,10 @@
 
   async function handleRemoveGroup(groupId: string): Promise<void> {
     await removeGroup(groupId);
+    const lastOpened = loadLastOpened();
+    if (lastOpened?.groupId === groupId) {
+      clearLastOpened();
+    }
     if (selectedGroupId === groupId) {
       selectedGroupId = null;
       selectedGroup = null;
@@ -331,6 +339,7 @@
 
   async function handleClearData(): Promise<void> {
     await clearAllData();
+    clearLastOpened();
     groups = [];
     articles = [];
     selectedGroup = null;
@@ -405,9 +414,26 @@
       online = false;
     });
 
-    const firstGroup = groups[0];
-    if (firstGroup) {
-      await selectGroup(firstGroup.id);
+    // Reopen the last-viewed group and article so the user picks up where
+    // they left off.  selectGroup already opens the group's lastReadArticle
+    // internally, so we only call openArticle a second time when the
+    // last-opened article differs — otherwise the redundant call causes a
+    // double render that can race with scroll restoration.
+    const lastOpened = loadLastOpened();
+    const restoreGroup = lastOpened
+      ? groups.find((g) => g.id === lastOpened.groupId)
+      : null;
+
+    if (restoreGroup) {
+      await selectGroup(restoreGroup.id);
+      if (lastOpened && selectedArticleId !== lastOpened.articleId && articles.some((a) => a.id === lastOpened.articleId)) {
+        await openArticle(lastOpened.articleId, { restoreScroll: true });
+      }
+    } else {
+      const firstGroup = groups[0];
+      if (firstGroup) {
+        await selectGroup(firstGroup.id);
+      }
     }
 
     await handleLaunchQueue();

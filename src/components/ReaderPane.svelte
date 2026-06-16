@@ -58,14 +58,21 @@
       if (container) {
         await renderMermaidBlocks(container);
         onOutlineChange(collectHeadings(container));
-        container.scrollTop = resolveScrollTarget({
+        const target = resolveScrollTarget({
           restoreScrollPosition,
           savedPosition: readingState?.scrollPosition
         });
-        // On narrow viewports the reader grows with its content (height: auto)
-        // and the page itself scrolls, so resetting the reader container is a
-        // no-op there — also scroll the window to the top of the new article.
-        window.scrollTo(0, 0);
+        // Desktop: scroll inside the container; window.scrollTo is a no-op
+        // because the app shell is height:100vh with overflow:hidden.
+        // Mobile: container has height:auto and doesn't scroll — the page
+        // itself scrolls, so we use window.scrollTo for both restore and
+        // reset-to-top.
+        if (isContainerScrollable()) {
+          container.scrollTop = target;
+          window.scrollTo(0, 0);
+        } else {
+          window.scrollTo(0, target);
+        }
       }
     } catch (error) {
       if (requestId !== renderRequestId) {
@@ -78,17 +85,30 @@
     }
   }
 
+  // On desktop the .reader element is height-constrained by the grid and
+  // scrolls internally.  On mobile (≤900px) it has height:auto so it grows
+  // to fit content and the *window* scrolls instead.  We need to detect
+  // which one is active to save and restore the right scroll offset.
+  function isContainerScrollable(): boolean {
+    return !!container && container.scrollHeight > container.clientHeight;
+  }
+
   function persistProgress(): void {
     if (!article || !container || isTemporaryArticle(article)) {
       return;
     }
 
-    const maxScroll = Math.max(1, container.scrollHeight - container.clientHeight);
+    const useContainer = isContainerScrollable();
+    const scrollPos = useContainer ? container.scrollTop : window.scrollY;
+    const maxScroll = useContainer
+      ? Math.max(1, container.scrollHeight - container.clientHeight)
+      : Math.max(1, document.documentElement.scrollHeight - window.innerHeight);
+
     onSaveProgress({
       articleId: article.id,
       groupId: article.groupId,
-      scrollPosition: container.scrollTop,
-      progressRatio: Math.min(1, container.scrollTop / maxScroll)
+      scrollPosition: scrollPos,
+      progressRatio: Math.min(1, scrollPos / maxScroll)
     });
   }
 
@@ -125,13 +145,29 @@
     container.style.setProperty('--reader-font-size', `${fontSize}px`);
   }
 
-  onMount(() => () => {
+  // On mobile the container doesn't scroll, so on:scroll on the <article>
+  // never fires.  We listen on the window to catch page-level scrolling.
+  function handleWindowScroll(): void {
+    if (isContainerScrollable()) {
+      return;
+    }
     if (scrollTimer) {
       window.clearTimeout(scrollTimer);
     }
-    persistProgress();
-    imageViewer?.destroy();
-    imageViewer = null;
+    scrollTimer = window.setTimeout(() => persistProgress(), 200);
+  }
+
+  onMount(() => {
+    window.addEventListener('scroll', handleWindowScroll, { passive: true });
+    return () => {
+      window.removeEventListener('scroll', handleWindowScroll);
+      if (scrollTimer) {
+        window.clearTimeout(scrollTimer);
+      }
+      persistProgress();
+      imageViewer?.destroy();
+      imageViewer = null;
+    };
   });
 </script>
 

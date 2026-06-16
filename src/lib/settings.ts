@@ -1,6 +1,7 @@
-import type { ReaderSettings, ThemeMode } from './types';
+import type { LastOpened, ReaderSettings, ThemeMode } from './types';
 
 const SETTINGS_KEY = 'my-md-reader:settings';
+const LAST_OPENED_KEY = 'my-md-reader:last-opened';
 
 export const defaultSettings: ReaderSettings = {
   theme: 'system',
@@ -68,6 +69,39 @@ function setMetaThemeColor(effective: 'light' | 'dark'): void {
   if (meta) {
     meta.setAttribute('content', THEME_COLORS[effective]);
   }
+}
+
+// Stored in localStorage (not IndexedDB) so it's available synchronously at
+// startup before Dexie is ready. The scroll position itself lives in the
+// readingStates table — this only tracks which group+article to reopen.
+export function loadLastOpened(): LastOpened | null {
+  if (typeof localStorage === 'undefined') {
+    return null;
+  }
+
+  try {
+    const raw = localStorage.getItem(LAST_OPENED_KEY);
+    if (!raw) {
+      return null;
+    }
+
+    const parsed = JSON.parse(raw) as Partial<LastOpened>;
+    if (typeof parsed.groupId !== 'string' || typeof parsed.articleId !== 'string') {
+      return null;
+    }
+
+    return { groupId: parsed.groupId, articleId: parsed.articleId };
+  } catch {
+    return null;
+  }
+}
+
+export function saveLastOpened(groupId: string, articleId: string): void {
+  localStorage.setItem(LAST_OPENED_KEY, JSON.stringify({ groupId, articleId }));
+}
+
+export function clearLastOpened(): void {
+  localStorage.removeItem(LAST_OPENED_KEY);
 }
 
 export function normalizeFontSize(value: unknown): number {
