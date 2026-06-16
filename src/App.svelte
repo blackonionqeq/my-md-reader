@@ -9,6 +9,7 @@
   import {
     clearAllData,
     downloadGroup,
+    type DownloadProgress,
     hydrateArticleAssets,
     importLocalFiles,
     loadArticles,
@@ -67,6 +68,7 @@
   let showAddForm = false;
   let showManifestHelp = false;
   let dragging = false;
+  let downloading = false;
   let focusMode = false;
   let focusController: FocusModeController | null = null;
 
@@ -190,13 +192,28 @@
     }
   }
 
+  function formatDownloadProgress(progress: DownloadProgress): string {
+    let msg = `Downloading article ${progress.articleIndex}/${progress.articleTotal}`;
+    if (progress.assetTotal) {
+      msg += ` — image ${progress.assetIndex}/${progress.assetTotal}`;
+    }
+    return msg + '…';
+  }
+
   async function handleDownloadAll(): Promise<void> {
     if (!selectedGroupId) {
       return;
     }
 
-    setMessage('Downloading markdown articles...');
-    await downloadGroup(selectedGroupId);
+    downloading = true;
+    setMessage('Downloading…');
+    try {
+      await downloadGroup(selectedGroupId, undefined, (progress) => {
+        setMessage(formatDownloadProgress(progress));
+      });
+    } finally {
+      downloading = false;
+    }
     articles = await loadArticles(selectedGroupId);
     await refreshGroups();
     if (selectedArticleId) {
@@ -593,6 +610,10 @@
     </button>
   </div>
 
+  {#if downloading}
+    <div class="download-toast">{message}</div>
+  {/if}
+
   <ManifestHelpDialog open={showManifestHelp} onClose={() => (showManifestHelp = false)} />
 </div>
 
@@ -956,6 +977,10 @@
     display: none;
   }
 
+  .download-toast {
+    display: none;
+  }
+
   @media (max-width: 1100px) {
     .app-shell {
       height: auto;
@@ -1036,6 +1061,24 @@
       background: var(--accent);
       color: var(--text-inverse);
       border-color: transparent;
+    }
+
+    .download-toast {
+      display: block;
+      position: fixed;
+      bottom: 5rem;
+      left: 1rem;
+      right: 1rem;
+      padding: 0.625rem 1rem;
+      background: var(--bg-panel);
+      border: 1px solid var(--border-light);
+      border-left: 3px solid var(--accent);
+      border-radius: 0.5rem;
+      box-shadow: var(--shadow-md);
+      font-size: 0.85rem;
+      color: var(--text-main);
+      z-index: 300;
+      text-align: center;
     }
   }
 

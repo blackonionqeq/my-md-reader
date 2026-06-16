@@ -12,6 +12,13 @@ import type {
   UrlArticlePreview
 } from './types';
 
+export type DownloadProgress = {
+  articleIndex: number;
+  articleTotal: number;
+  assetIndex?: number;
+  assetTotal?: number;
+};
+
 const MAX_ASSET_RETRY_ATTEMPTS = 5;
 const ASSET_RETRY_DELAYS_MS = [1000, 3000, 10000, 30000];
 const ASSET_PLACEHOLDER_PREFIX = 'mdr-asset://';
@@ -216,9 +223,14 @@ async function downloadAsset(asset: Asset): Promise<Asset> {
   }
 }
 
-async function runAssetRetryQueue(assets: Asset[]): Promise<Asset[]> {
+async function runAssetRetryQueue(
+  assets: Asset[],
+  onAssetProgress?: (done: number, total: number) => void
+): Promise<Asset[]> {
   const queue = assets.filter((asset) => asset.status !== 'downloaded');
   const results = new Map<string, Asset>(assets.map((asset) => [asset.id, asset]));
+  const total = queue.length;
+  let done = 0;
 
   while (queue.length > 0) {
     queue.sort((left, right) => {
@@ -243,6 +255,9 @@ async function runAssetRetryQueue(assets: Asset[]): Promise<Asset[]> {
 
     if (updated.status === 'pending') {
       queue.push(updated);
+    } else {
+      done++;
+      onAssetProgress?.(done, total);
     }
   }
 
@@ -261,7 +276,11 @@ export function buildOfflineMarkdown(articleContent: string, articleUrl: string,
   return rewriteMarkdownImageUrls(articleContent, articleUrl, replacements);
 }
 
-async function downloadArticleAssets(article: Article, content: string): Promise<string> {
+async function downloadArticleAssets(
+  article: Article,
+  content: string,
+  onAssetProgress?: (done: number, total: number) => void
+): Promise<string> {
   if (!article.url) {
     return content;
   }
@@ -276,7 +295,7 @@ async function downloadArticleAssets(article: Article, content: string): Promise
   }
 
   const pendingAssets = await persistPendingAssets(article.id, imageUrls);
-  const finalAssets = await runAssetRetryQueue(pendingAssets);
+  const finalAssets = await runAssetRetryQueue(pendingAssets, onAssetProgress);
   return buildOfflineMarkdown(content, article.url, finalAssets);
 }
 
@@ -550,16 +569,25 @@ export async function toggleFavorite(articleId: string, groupId: string, value: 
   });
 }
 
-export async function downloadGroup(groupId: string, articleIds?: string[]): Promise<void> {
+export async function downloadGroup(
+  groupId: string,
+  articleIds?: string[],
+  onProgress?: (progress: DownloadProgress) => void
+): Promise<void> {
   const allArticles = await loadArticles(groupId);
   const targets = articleIds
     ? allArticles.filter((article) => articleIds.includes(article.id))
     : allArticles;
 
-  for (const article of targets) {
+  const articleTotal = targets.length;
+
+  for (let i = 0; i < targets.length; i++) {
+    const article = targets[i]!;
     if (!article.url) {
       continue;
     }
+
+    onProgress?.({ articleIndex: i + 1, articleTotal });
 
     await db.articles.update(article.id, {
       downloadStatus: 'downloading',
@@ -574,7 +602,9 @@ export async function downloadGroup(groupId: string, articleIds?: string[]): Pro
       }
 
       const content = await response.text();
-      const offlineContent = await downloadArticleAssets(article, content);
+      const offlineContent = await downloadArticleAssets(article, content, (assetIndex, assetTotal) => {
+        onProgress?.({ articleIndex: i + 1, articleTotal, assetIndex, assetTotal });
+      });
       await db.articles.update(article.id, {
         content: offlineContent,
         downloadStatus: 'downloaded',
