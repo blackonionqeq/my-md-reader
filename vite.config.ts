@@ -17,7 +17,8 @@ export default defineConfig({
         description: 'A personal offline-first Markdown reader.',
         start_url: '/',
         scope: '/',
-        display: 'standalone',
+        display: 'fullscreen',
+        display_override: ['fullscreen', 'standalone'],
         theme_color: '#f8fafc',
         background_color: '#f4efe3',
         icons: [
