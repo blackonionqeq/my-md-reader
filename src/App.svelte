@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onDestroy, onMount } from 'svelte';
+  import { onDestroy, onMount, tick } from 'svelte';
   import AddSourceForm from './components/AddSourceForm.svelte';
   import Bookshelf from './components/Bookshelf.svelte';
   import GroupDetail from './components/GroupDetail.svelte';
@@ -28,7 +28,7 @@
   } from './lib/content-service';
   import { dropImport } from './lib/drop-import';
   import type { FocusModeController } from './lib/focus-mode';
-  import { applyTheme, clearLastOpened, loadLastOpened, loadSettings, normalizeFontSize, saveLastOpened, saveSettings } from './lib/settings';
+  import { applyTheme, clearLastOpened, loadLastOpened, loadSettings, normalizeFontSize, saveDirectoryScroll, saveLastOpened, saveSettings } from './lib/settings';
   import type {
     Article,
     Group,
@@ -71,6 +71,8 @@
   let downloading = false;
   let focusMode = false;
   let focusController: FocusModeController | null = null;
+  let directoryWrapper: HTMLDivElement | null = null;
+  let restoringDirectoryScroll = false;
 
   function setMessage(value: string, tone: 'info' | 'error' = 'info'): void {
     message = value;
@@ -89,7 +91,9 @@
     selectedGroupId = groupId;
     selectedGroup = groups.find((group) => group.id === groupId) ?? null;
     articles = await loadArticles(groupId);
-    showDirectory = true;
+    showDirectory = false;
+    showOutline = true;
+    if (directoryWrapper) directoryWrapper.scrollTop = 0;
 
     if (selectedArticleId && articles.some((article) => article.id === selectedArticleId)) {
       return;
@@ -140,7 +144,7 @@
     // Dismiss the slide-over directory panel after switching articles so the
     // reader is immediately visible (no-op on desktop where the column persists).
     if (switching) {
-      showDirectory = false;
+      showOutline = false;
     }
   }
 
@@ -446,6 +450,12 @@
       if (lastOpened && selectedArticleId !== lastOpened.articleId && articles.some((a) => a.id === lastOpened.articleId)) {
         await openArticle(lastOpened.articleId, { restoreScroll: true });
       }
+      if (lastOpened?.directoryScrollTop && directoryWrapper) {
+        restoringDirectoryScroll = true;
+        await tick();
+        directoryWrapper.scrollTop = lastOpened.directoryScrollTop;
+        restoringDirectoryScroll = false;
+      }
     } else {
       const firstGroup = groups[0];
       if (firstGroup) {
@@ -493,8 +503,8 @@
     </div>
     <div class="topbar-actions">
       <span class:offline={!online} class="network-dot" title={online ? 'Online' : 'Offline'}></span>
-      <button on:click={() => (showDirectory = !showDirectory)}>Directory</button>
-      <button on:click={() => (showOutline = !showOutline)}>Outline</button>
+      <button on:click={() => (showDirectory = !showDirectory)}>Bookshelf</button>
+      <button on:click={() => (showOutline = !showOutline)}>Articles</button>
       <button class="focus-btn" on:click={toggleFocusMode}>Focus</button>
     </div>
   </header>
@@ -505,14 +515,6 @@
 
   <main class="layout">
     <aside class:panel-hidden={!showDirectory} class="left-column">
-      <Bookshelf
-        {groups}
-        {selectedGroupId}
-        onSelectGroup={selectGroup}
-        onImportLocal={openImportPicker}
-        onRemoveGroup={handleRemoveGroup}
-      />
-
       <button class="drawer-toggle" on:click={() => (showAddForm = !showAddForm)}>
         <span>Add from URL</span>
         <span class="chevron" class:open={showAddForm}>&#9656;</span>
@@ -533,15 +535,6 @@
         />
       {/if}
 
-      <GroupDetail
-        group={selectedGroup}
-        {articles}
-        {selectedArticleId}
-        onSelectArticle={handleSelectArticle}
-        onDownloadAll={handleDownloadAll}
-        onRetryFailed={handleRetryFailed}
-      />
-
       <details class="settings-drawer">
         <summary>Settings</summary>
         <div class="settings-content">
@@ -553,6 +546,16 @@
           />
         </div>
       </details>
+
+      <div class="bookshelf-wrapper">
+        <Bookshelf
+          {groups}
+          {selectedGroupId}
+          onSelectGroup={selectGroup}
+          onImportLocal={openImportPicker}
+          onRemoveGroup={handleRemoveGroup}
+        />
+      </div>
     </aside>
 
     <section class="reader-column">
@@ -586,6 +589,17 @@
           <p>No headings found for this article.</p>
         {/if}
       </section>
+
+      <div class="group-detail-wrapper" bind:this={directoryWrapper} on:scroll={() => { if (directoryWrapper && !restoringDirectoryScroll) saveDirectoryScroll(directoryWrapper.scrollTop); }}>
+        <GroupDetail
+          group={selectedGroup}
+          {articles}
+          {selectedArticleId}
+          onSelectArticle={handleSelectArticle}
+          onDownloadAll={handleDownloadAll}
+          onRetryFailed={handleRetryFailed}
+        />
+      </div>
     </aside>
   </main>
 
@@ -779,25 +793,37 @@
     flex: 1;
     min-height: 0;
     display: grid;
-    grid-template-columns: minmax(18rem, 20rem) minmax(0, 1fr) minmax(14rem, 16rem);
+    grid-template-columns: minmax(14rem, 18rem) minmax(0, 1fr) minmax(18rem, 22rem);
     grid-template-rows: minmax(0, 1fr);
     gap: 1.5rem;
   }
 
   .left-column {
-    display: grid;
+    display: flex;
+    flex-direction: column;
     gap: 0.75rem;
     min-height: 0;
+    overflow: hidden;
+  }
+
+  .bookshelf-wrapper {
+    flex: 1;
+    min-height: 0;
     overflow-y: auto;
-    align-content: start;
   }
 
   .right-column {
-    display: grid;
-    gap: 1.5rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .group-detail-wrapper {
+    flex: 1;
     min-height: 0;
     overflow-y: auto;
-    align-content: start;
   }
 
   .reader-column {

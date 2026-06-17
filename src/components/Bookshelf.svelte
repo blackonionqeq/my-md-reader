@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { formatRelativeTime } from '../lib/format';
   import type { GroupListItem } from '../lib/types';
 
   export let groups: GroupListItem[] = [];
@@ -11,37 +10,25 @@
 
 <section class="card">
   <div class="header">
-    <div>
-      <h2>Bookshelf</h2>
-      <p>Your imported and remote markdown collections.</p>
-    </div>
-    <button class="chip" on:click={onImportLocal}>Import `.md`</button>
+    <h2>Bookshelf</h2>
+    <button class="chip" on:click={onImportLocal}>Import</button>
   </div>
 
   {#if groups.length === 0}
-    <div class="empty">
-      <strong>No groups yet</strong>
-      <p>Add a manifest below or import local markdown files.</p>
-    </div>
+    <p class="empty">Add a source or import local files.</p>
   {:else}
     <ul>
       {#each groups as group}
         <li class:selected={group.id === selectedGroupId}>
           <button class="group-button" on:click={() => onSelectGroup(group.id)}>
-            <strong>{group.title}</strong>
-            <span>{group.articleCount} articles</span>
-            <span class="status">{group.offlineStatus.replace('_', ' ')}</span>
-            <small>
-              {group.lastReadTitle ? `${group.lastReadTitle} · ` : ''}{formatRelativeTime(group.lastReadAt)}
-            </small>
+            <span class="title">{group.title}</span>
+            <span class="badge">{group.articleCount}</span>
           </button>
           <button
             class="remove"
             aria-label={`Remove ${group.title}`}
             on:click={() => onRemoveGroup(group.id)}
-          >
-            Remove
-          </button>
+          >&times;</button>
         </li>
       {/each}
     </ul>
@@ -50,8 +37,8 @@
 
 <style>
   .card {
-    padding: 1.25rem;
-    border-radius: 1rem;
+    padding: 0.75rem;
+    border-radius: 0.75rem;
     background: var(--bg-panel);
     border: 1px solid var(--border-light);
     box-shadow: var(--shadow-sm);
@@ -59,62 +46,60 @@
 
   .header {
     display: flex;
-    gap: 1rem;
     justify-content: space-between;
-    align-items: start;
-    margin-bottom: 0.5rem;
-  }
-
-  .header h2 {
-    font-size: 1.1rem;
+    align-items: center;
+    padding: 0.25rem 0.5rem;
     margin-bottom: 0.25rem;
   }
 
-  .header p {
+  .header h2 {
+    font-size: 0.85rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
     color: var(--text-muted);
-    font-size: 0.875rem;
-    margin-bottom: 0;
   }
 
   .chip {
     border: 1px solid var(--border-light);
-    border-radius: 0.5rem;
+    border-radius: 0.375rem;
     background: var(--bg-app);
-    padding: 0.4rem 0.75rem;
-    color: var(--text-main);
-    font-size: 0.8rem;
-    white-space: nowrap;
+    padding: 0.2rem 0.5rem;
+    color: var(--text-muted);
+    font-size: 0.75rem;
+    font-weight: 500;
   }
 
   .chip:hover {
     background: var(--bg-hover);
+    color: var(--text-main);
   }
 
   ul {
     list-style: none;
     padding: 0;
-    margin: 1rem 0 0;
+    margin: 0;
     display: grid;
-    gap: 0.5rem;
+    gap: 2px;
   }
 
   li {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
-    gap: 0.5rem;
-    align-items: center;
+    position: relative;
+    border-radius: 0.5rem;
   }
 
   .group-button {
-    display: grid;
-    gap: 0.2rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
     width: 100%;
     text-align: left;
-    padding: 0.75rem 1rem;
-    border-radius: 0.75rem;
+    padding: 0.5rem 0.625rem;
+    border-radius: 0.5rem;
     border: 1px solid transparent;
     background: transparent;
     color: var(--text-main);
+    font-size: 0.875rem;
   }
 
   .group-button:hover {
@@ -124,22 +109,47 @@
   .selected .group-button {
     border-color: var(--border-focus);
     background: var(--bg-active);
+    font-weight: 500;
   }
 
-  .status,
-  small {
-    color: var(--text-muted);
-    font-size: 0.8rem;
+  .title {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .badge {
+    flex-shrink: 0;
+    min-width: 1.5rem;
+    padding: 0.1rem 0.4rem;
+    border-radius: 999px;
+    background: var(--accent-soft);
+    color: var(--accent);
+    font-size: 0.7rem;
+    font-weight: 600;
+    text-align: center;
+    line-height: 1.3;
   }
 
   .remove {
-    border: 0;
-    border-radius: 0.5rem;
-    background: var(--danger-soft);
-    color: var(--danger-text);
-    padding: 0.5rem 0.75rem;
+    position: absolute;
+    right: -0.25rem;
+    top: -0.25rem;
+    width: 1.25rem;
+    height: 1.25rem;
+    border: 1px solid var(--border-light);
+    border-radius: 50%;
+    background: var(--bg-panel);
+    color: var(--text-muted);
     font-size: 0.8rem;
+    line-height: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
     opacity: 0;
+    transition: opacity 0.15s;
   }
 
   li:hover .remove {
@@ -148,21 +158,14 @@
 
   .remove:hover {
     background: var(--danger);
+    border-color: var(--danger);
     color: white;
   }
 
   .empty {
-    margin-top: 1rem;
-    padding: 1.25rem;
-    border-radius: 0.75rem;
-    background: var(--bg-app);
-    text-align: center;
-    border: 1px dashed var(--border-focus);
-  }
-
-  .empty p {
     color: var(--text-muted);
-    font-size: 0.875rem;
-    margin-top: 0.5rem;
+    font-size: 0.8rem;
+    text-align: center;
+    padding: 1rem 0.5rem;
   }
 </style>

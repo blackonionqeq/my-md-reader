@@ -90,14 +90,29 @@ export function loadLastOpened(): LastOpened | null {
       return null;
     }
 
-    return { groupId: parsed.groupId, articleId: parsed.articleId };
+    return {
+      groupId: parsed.groupId,
+      articleId: parsed.articleId,
+      directoryScrollTop: typeof parsed.directoryScrollTop === 'number' ? parsed.directoryScrollTop : undefined
+    };
   } catch {
     return null;
   }
 }
 
 export function saveLastOpened(groupId: string, articleId: string): void {
-  localStorage.setItem(LAST_OPENED_KEY, JSON.stringify({ groupId, articleId }));
+  const existing = loadLastOpened();
+  localStorage.setItem(LAST_OPENED_KEY, JSON.stringify({
+    groupId,
+    articleId,
+    directoryScrollTop: existing?.groupId === groupId ? existing.directoryScrollTop : 0
+  }));
+}
+
+export function saveDirectoryScroll(scrollTop: number): void {
+  const existing = loadLastOpened();
+  if (!existing) return;
+  localStorage.setItem(LAST_OPENED_KEY, JSON.stringify({ ...existing, directoryScrollTop: scrollTop }));
 }
 
 export function clearLastOpened(): void {

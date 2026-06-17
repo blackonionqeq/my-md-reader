@@ -74,6 +74,7 @@ export interface ReaderSettings {
 export interface LastOpened {
   groupId: string;
   articleId: string;
+  directoryScrollTop?: number;
 }
 
 export interface ManifestArticleInput {
