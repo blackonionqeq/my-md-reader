@@ -37,42 +37,54 @@
 
 <style>
   .card {
-    padding: 0.75rem;
-    border-radius: 0.75rem;
+    padding: 1.25rem;
+    border-radius: var(--radius-lg);
     background: var(--bg-panel);
+    backdrop-filter: var(--glass-blur);
+    -webkit-backdrop-filter: var(--glass-blur);
     border: 1px solid var(--border-light);
-    box-shadow: var(--shadow-sm);
+    box-shadow: var(--shadow-md);
+    transition: box-shadow 0.3s ease;
+  }
+
+  .card:hover {
+    box-shadow: var(--shadow-lg);
   }
 
   .header {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 0.25rem 0.5rem;
-    margin-bottom: 0.25rem;
+    padding: 0 0.25rem;
+    margin-bottom: 0.75rem;
   }
 
   .header h2 {
-    font-size: 0.85rem;
-    font-weight: 600;
+    font-size: 0.75rem;
+    font-weight: 700;
     text-transform: uppercase;
-    letter-spacing: 0.05em;
-    color: var(--text-muted);
+    letter-spacing: 0.1em;
+    color: var(--accent);
+    opacity: 0.9;
   }
 
   .chip {
     border: 1px solid var(--border-light);
-    border-radius: 0.375rem;
+    border-radius: var(--radius-sm);
     background: var(--bg-app);
-    padding: 0.2rem 0.5rem;
+    padding: 0.35rem 0.75rem;
     color: var(--text-muted);
     font-size: 0.75rem;
-    font-weight: 500;
+    font-weight: 600;
+    box-shadow: var(--shadow-sm);
+    transition: all 0.2s ease;
   }
 
   .chip:hover {
     background: var(--bg-hover);
     color: var(--text-main);
+    transform: translateY(-1px);
+    box-shadow: var(--shadow-md);
   }
 
   ul {
@@ -80,26 +92,28 @@
     padding: 0;
     margin: 0;
     display: grid;
-    gap: 2px;
+    gap: 0.4rem;
   }
 
   li {
     position: relative;
-    border-radius: 0.5rem;
+    border-radius: var(--radius-md);
   }
 
   .group-button {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
+    gap: 0.75rem;
     width: 100%;
     text-align: left;
-    padding: 0.5rem 0.625rem;
-    border-radius: 0.5rem;
+    padding: 0.65rem 0.85rem;
+    border-radius: var(--radius-md);
     border: 1px solid transparent;
     background: transparent;
     color: var(--text-main);
-    font-size: 0.875rem;
+    font-size: 0.9rem;
+    font-weight: 500;
+    transition: all 0.2s ease;
   }
 
   .group-button:hover {
@@ -108,8 +122,9 @@
 
   .selected .group-button {
     border-color: var(--border-focus);
-    background: var(--bg-active);
-    font-weight: 500;
+    background: var(--accent-soft);
+    color: var(--accent);
+    font-weight: 700;
   }
 
   .title {
@@ -123,49 +138,59 @@
   .badge {
     flex-shrink: 0;
     min-width: 1.5rem;
-    padding: 0.1rem 0.4rem;
+    padding: 0.15rem 0.5rem;
     border-radius: 999px;
-    background: var(--accent-soft);
-    color: var(--accent);
+    background: var(--accent);
+    color: var(--text-inverse);
     font-size: 0.7rem;
-    font-weight: 600;
+    font-weight: 700;
     text-align: center;
     line-height: 1.3;
+    box-shadow: var(--shadow-sm);
+  }
+
+  .selected .badge {
+    background: var(--accent);
+    color: var(--text-inverse);
   }
 
   .remove {
     position: absolute;
-    right: -0.25rem;
-    top: -0.25rem;
-    width: 1.25rem;
-    height: 1.25rem;
-    border: 1px solid var(--border-light);
+    right: 0.5rem;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 1.5rem;
+    height: 1.5rem;
+    border: none;
     border-radius: 50%;
-    background: var(--bg-panel);
+    background: transparent;
     color: var(--text-muted);
-    font-size: 0.8rem;
+    font-size: 1.1rem;
     line-height: 1;
     display: flex;
     align-items: center;
     justify-content: center;
     opacity: 0;
-    transition: opacity 0.15s;
+    transition: all 0.2s ease;
   }
 
   li:hover .remove {
-    opacity: 1;
+    opacity: 0.6;
   }
 
   .remove:hover {
-    background: var(--danger);
-    border-color: var(--danger);
-    color: white;
+    opacity: 1 !important;
+    background: var(--danger-soft);
+    color: var(--danger);
   }
 
   .empty {
     color: var(--text-muted);
-    font-size: 0.8rem;
+    font-size: 0.85rem;
     text-align: center;
-    padding: 1rem 0.5rem;
+    padding: 1.5rem 0.5rem;
+    border: 1px dashed var(--border-light);
+    border-radius: var(--radius-md);
+    margin: 0.5rem 0;
   }
 </style>
