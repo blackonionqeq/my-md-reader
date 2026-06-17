@@ -918,8 +918,8 @@
 
   .settings-drawer summary {
     display: flex;
+    justify-content: space-between;
     align-items: center;
-    gap: 0.5rem;
     padding: 0.75rem 1.25rem;
     font-size: 0.9rem;
     font-weight: 500;
@@ -932,13 +932,13 @@
     display: none;
   }
 
-  .settings-drawer summary::before {
+  .settings-drawer summary::after {
     content: '▸';
     font-size: 0.75rem;
     transition: transform 0.2s ease;
   }
 
-  .settings-drawer[open] summary::before {
+  .settings-drawer[open] summary::after {
     transform: rotate(90deg);
   }
 
