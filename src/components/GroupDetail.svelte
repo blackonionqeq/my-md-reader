@@ -57,65 +57,59 @@
 
 <style>
   .card {
-    padding: 1.5rem;
-    border-radius: var(--radius-lg);
+    padding: 1.25rem;
+    border-radius: 1rem;
     background: var(--bg-panel);
-    backdrop-filter: var(--glass-blur);
-    -webkit-backdrop-filter: var(--glass-blur);
     border: 1px solid var(--border-light);
-    box-shadow: var(--shadow-md);
-    transition: box-shadow 0.3s ease;
-  }
-
-  .card:hover {
-    box-shadow: var(--shadow-lg);
+    box-shadow: var(--shadow-sm);
   }
 
   .header {
     display: grid;
-    gap: 1.25rem;
+    gap: 0.75rem;
   }
 
   .header h2 {
-    font-size: 1.4rem;
+    font-size: 1.1rem;
     margin-bottom: 0.25rem;
-    font-weight: 800;
-    color: var(--text-main);
-    letter-spacing: -0.02em;
   }
 
   .header p {
     color: var(--text-muted);
-    font-size: 0.95rem;
+    font-size: 0.875rem;
     margin-bottom: 0;
-    line-height: 1.4;
+  }
+
+  .meta {
+    color: var(--text-muted);
+    font-size: 0.875rem;
+  }
+
+  small {
+    color: var(--text-muted);
   }
 
   .actions {
     display: flex;
     flex-wrap: wrap;
-    gap: 0.75rem;
+    gap: 0.6rem;
   }
 
   .actions button {
     border: 1px solid transparent;
-    border-radius: var(--radius-md);
-    padding: 0.6rem 1.2rem;
+    border-radius: 0.5rem;
+    padding: 0.4rem 0.75rem;
     font-size: 0.85rem;
-    font-weight: 700;
-    box-shadow: var(--shadow-sm);
-    transition: all 0.2s ease;
+    font-weight: 500;
   }
 
   .primary {
     background: var(--accent);
-    color: var(--text-inverse);
+    color: white;
   }
 
   .primary:hover {
     background: var(--accent-hover);
-    transform: translateY(-1px);
-    box-shadow: var(--shadow-md);
   }
 
   .secondary {
@@ -126,94 +120,61 @@
 
   .secondary:hover {
     background: var(--bg-hover);
-    transform: translateY(-1px);
-    box-shadow: var(--shadow-md);
   }
 
   .meta {
     display: flex;
     flex-wrap: wrap;
-    gap: 1.25rem;
-    margin-top: 1.25rem;
-    padding-top: 1.25rem;
-    border-top: 1px solid var(--border-light);
-    color: var(--text-muted);
-    font-size: 0.8rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
+    gap: 0.85rem;
+    margin-top: 1rem;
   }
 
   ul {
     list-style: none;
     padding: 0;
-    margin: 1.5rem 0 0;
+    margin: 1rem 0 0;
     display: grid;
-    gap: 0.6rem;
+    gap: 0.5rem;
   }
 
   .article-button {
     width: 100%;
     display: grid;
     grid-template-columns: auto minmax(0, 1fr);
-    gap: 1rem;
-    align-items: center;
+    gap: 0.75rem;
+    align-items: start;
     text-align: left;
-    padding: 0.85rem 1rem;
-    border-radius: var(--radius-md);
+    padding: 0.75rem;
+    border-radius: 0.75rem;
     border: 1px solid transparent;
     background: transparent;
     color: var(--text-main);
-    transition: all 0.2s ease;
   }
 
   .article-button:hover {
     background: var(--bg-hover);
-    transform: translateX(2px);
   }
 
   .selected .article-button {
     border-color: var(--border-focus);
-    background: var(--accent-soft);
-    box-shadow: var(--shadow-sm);
-  }
-
-  .selected .article-button strong {
-    color: var(--accent);
+    background: var(--bg-active);
   }
 
   .order {
-    width: 2rem;
-    height: 2rem;
+    width: 1.75rem;
+    height: 1.75rem;
     display: inline-grid;
     place-items: center;
-    border-radius: var(--radius-sm);
-    background: var(--bg-active);
-    color: var(--text-muted);
-    font-weight: 700;
-    font-size: 0.85rem;
-    transition: all 0.2s ease;
-  }
-
-  .selected .order {
-    background: var(--accent);
-    color: var(--text-inverse);
+    border-radius: 0.35rem;
+    background: var(--accent-soft);
+    color: var(--accent);
+    font-weight: 600;
+    font-size: 0.8rem;
   }
 
   .article-button div {
     display: grid;
-    gap: 0.2rem;
-  }
-
-  .article-button strong {
-    font-size: 1rem;
-    font-weight: 600;
-  }
-
-  small {
-    color: var(--text-muted);
-    font-size: 0.8rem;
-    font-weight: 500;
+    gap: 0.15rem;
   }
 
   .error {
@@ -222,18 +183,16 @@
   }
 
   .empty {
-    padding: 3rem 1.5rem;
-    border-radius: var(--radius-lg);
+    padding: 1.25rem;
+    border-radius: 0.75rem;
     background: var(--bg-app);
     text-align: center;
-    border: 2px dashed var(--border-light);
-    color: var(--text-muted);
+    border: 1px dashed var(--border-focus);
   }
 
-  .empty strong {
-    display: block;
-    font-size: 1.1rem;
-    color: var(--text-main);
-    margin-bottom: 0.5rem;
+  .empty p {
+    color: var(--text-muted);
+    font-size: 0.875rem;
+    margin-top: 0.5rem;
   }
 </style>

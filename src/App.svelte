@@ -633,13 +633,11 @@
 
 <style>
   .app-shell {
-    padding: 1.5rem;
+    padding: 1.25rem;
     height: 100vh;
     display: flex;
     flex-direction: column;
     overflow: hidden;
-    background: var(--bg-app);
-    transition: background 0.3s ease;
   }
 
   .topbar {
@@ -834,34 +832,24 @@
   }
 
   .outline-card {
-    padding: 1.5rem;
-    border-radius: var(--radius-lg);
+    padding: 1.25rem;
+    border-radius: 1rem;
     background: var(--bg-panel);
     border: 1px solid var(--border-light);
-    box-shadow: var(--shadow-md);
-    transition: all 0.3s ease;
-  }
-
-  .outline-card:hover {
-    box-shadow: var(--shadow-lg);
+    box-shadow: var(--shadow-sm);
   }
 
   .outline-card h2 {
-    font-size: 0.75rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.1em;
-    color: var(--accent);
-    margin-bottom: 1rem;
-    opacity: 0.9;
+    font-size: 1.1rem;
+    margin-bottom: 0.5rem;
   }
 
   .outline-card ul {
     list-style: none;
     padding: 0;
-    margin: 0;
+    margin: 0.75rem 0 0;
     display: grid;
-    gap: 0.6rem;
+    gap: 0.5rem;
   }
 
   .outline-card li {
@@ -870,21 +858,16 @@
   }
 
   .outline-card .level-2 {
-    padding-left: 1rem;
-    border-left: 1px solid var(--border-light);
-    margin-left: 0.25rem;
+    padding-left: 0.75rem;
   }
 
   .outline-card .level-3 {
-    padding-left: 2rem;
-    border-left: 1px solid var(--border-light);
-    margin-left: 0.25rem;
+    padding-left: 1.5rem;
   }
 
   .outline-card a {
     color: inherit;
     text-decoration: none;
-    transition: color 0.2s ease;
   }
 
   .outline-card a:hover {
@@ -1131,28 +1114,9 @@
     }
   }
 
-  /* Corrected logic: 
-     1. On Desktop (>1100px), hide toggles because panels are already visible in columns.
-     2. On Mobile (<600px), hide toggles because we use FABs.
-     3. On Tablet (601px - 1100px), show toggles to allow opening the slide-over panels.
-  */
   @media (min-width: 1101px) {
     .topbar-actions button:not(.focus-btn) {
       display: none;
     }
-  }
-
-  @media (max-width: 600px) {
-    .topbar-actions button:not(.focus-btn) {
-      display: none;
-    }
-    .topbar h1 {
-      font-size: 1.5rem;
-    }
-  }
-
-  /* Ensure the shell itself never scrolls horizontally */
-  .app-shell {
-    overflow-x: hidden;
   }
 </style>

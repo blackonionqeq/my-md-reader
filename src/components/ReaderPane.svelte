@@ -289,98 +289,76 @@
 
   .reader {
     min-height: 0;
-    overflow-y: auto;
-    padding: 4rem 10% 6rem;
-    border-radius: var(--radius-lg);
+    overflow: auto;
+    padding: 2.5rem 3rem;
+    border-radius: 1rem;
     background: var(--bg-panel);
-    backdrop-filter: var(--glass-blur);
-    -webkit-backdrop-filter: var(--glass-blur);
     border: 1px solid var(--border-light);
-    box-shadow: var(--shadow-lg);
+    box-shadow: var(--shadow-sm);
     font-family: var(--font-serif);
-    font-size: var(--reader-font-size, 21px);
-    line-height: 1.75;
+    font-size: var(--reader-font-size, 18px);
+    line-height: 1.6;
     color: var(--text-main);
-    width: 100%;
-    max-width: 960px;
-    margin: 0 auto;
-    scrollbar-gutter: stable;
-    overflow-x: hidden; /* Container itself shouldn't scroll horizontally */
   }
 
-  .reader :global(h1),
-  .reader :global(h2),
-  .reader :global(h3) {
-    font-family: var(--font-ui);
-    margin-top: 3.5rem;
-    margin-bottom: 1.5rem;
-    color: var(--text-main);
-    font-weight: 700;
-    letter-spacing: -0.01em;
+  .reader :global(pre) {
+    overflow: auto;
+    padding: 1.25rem;
+    border-radius: 0.5rem;
+    background: var(--bg-app);
+    border: 1px solid var(--border-light);
+    font-family: var(--font-mono);
   }
 
-  .reader :global(h1) { font-size: 2.25em; border-bottom: 1px solid var(--border-light); padding-bottom: 0.5rem; }
-  .reader :global(h2) { font-size: 1.75em; }
-  .reader :global(h3) { font-size: 1.4em; }
-
-  .reader :global(p) {
-    margin-bottom: 1.6rem;
-    overflow-wrap: break-word;
+  .reader :global(pre.mermaid) {
+    text-align: center;
+    background: transparent;
+    border: none;
+    padding: 1rem 0;
+    font-family: inherit;
   }
 
-  .reader :global(blockquote) {
-    border-left: 6px solid var(--accent);
-    margin: 2.5rem 0;
-    padding: 1rem 1.5rem;
-    background: var(--accent-soft);
-    border-radius: 0 var(--radius-md) var(--radius-md) 0;
-    color: var(--text-main);
-    font-style: italic;
-    font-size: 1.05em;
-  }
-
-  .reader :global(img) {
+  .reader :global(pre.mermaid svg) {
     max-width: 100%;
-    border-radius: var(--radius-md);
-    margin: 3rem auto;
-    display: block;
-    box-shadow: var(--shadow-md);
-    transition: transform 0.3s ease;
-  }
-
-  .reader :global(img:hover) {
-    transform: scale(1.01);
+    height: auto;
   }
 
   .reader :global(code) {
     font-family: var(--font-mono);
-    font-size: 1em; /* Increased from 0.9em */
-    background: var(--bg-hover);
-    padding: 0.2em 0.4em;
-    border-radius: 0.3em;
-    color: var(--accent);
-    font-weight: 600;
-    word-break: break-word;
-  }
-
-  .reader :global(pre) {
-    margin: 2rem 0;
-    padding: 1.5rem;
-    border-radius: var(--radius-md);
+    font-size: 0.9em;
     background: var(--bg-app);
-    border: 1px solid var(--border-light);
-    box-shadow: var(--shadow-inner);
-    overflow-x: auto; /* Enable horizontal scrolling */
-    max-width: 100%; /* Force constraint */
-    font-size: 0.95em; /* Slightly smaller than body text but larger than before */
+    padding: 0.2em 0.4em;
+    border-radius: 0.25em;
   }
 
   .reader :global(pre code) {
     background: transparent;
     padding: 0;
-    color: inherit;
-    word-break: normal;
-    white-space: pre;
+  }
+
+  .reader :global(img) {
+    max-width: 100%;
+    border-radius: 0.5rem;
+    margin: 1.5rem 0;
+    cursor: zoom-in;
+  }
+
+  .reader :global(blockquote) {
+    border-left: 4px solid var(--accent);
+    margin: 1.5rem 0;
+    padding-left: 1rem;
+    color: var(--text-muted);
+    font-style: italic;
+  }
+
+  .reader :global(h1),
+  .reader :global(h2),
+  .reader :global(h3),
+  .reader :global(h4) {
+    font-family: var(--font-ui);
+    margin-top: 2rem;
+    margin-bottom: 1rem;
+    color: var(--text-main);
   }
 
   .reader :global(a) {
@@ -389,24 +367,35 @@
     text-underline-offset: 2px;
   }
 
-  @media (max-width: 1100px) {
-    .reader {
-      padding: 3rem 5% 5rem; /* Reduce padding on tablets */
-    }
+  .empty {
+    padding: 3rem 1.5rem;
+    border-radius: 1rem;
+    background: var(--bg-panel);
+    border: 1px dashed var(--border-focus);
+    text-align: center;
+  }
+
+  .reader-placeholder {
+    height: 100%;
+    display: grid;
+    place-items: center;
+    text-align: center;
+  }
+
+  .error {
+    margin: 0 0 0.75rem;
+    color: var(--danger);
   }
 
   @media (max-width: 900px) {
     .reader {
       height: auto;
       min-height: 55vh;
-      padding: 1.5rem 1.25rem; /* Fix mobile padding */
-      border-radius: var(--radius-md);
+      padding: 1.25rem 1rem;
     }
 
     .reader-header {
       flex-direction: column;
-      align-items: flex-start;
-      gap: 1rem;
     }
   }
 </style>
