@@ -503,8 +503,6 @@
     </div>
     <div class="topbar-actions">
       <span class:offline={!online} class="network-dot" title={online ? 'Online' : 'Offline'}></span>
-      <button on:click={() => (showDirectory = !showDirectory)}>Bookshelf</button>
-      <button on:click={() => (showOutline = !showOutline)}>Articles</button>
       <button class="focus-btn" on:click={toggleFocusMode}>Focus</button>
     </div>
   </header>
@@ -837,6 +835,8 @@
     background: var(--bg-panel);
     border: 1px solid var(--border-light);
     box-shadow: var(--shadow-sm);
+    max-height: 50vh;
+    overflow-y: auto;
   }
 
   .outline-card h2 {
