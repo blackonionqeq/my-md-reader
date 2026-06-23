@@ -23,12 +23,15 @@
           <button class="group-button" on:click={() => onSelectGroup(group.id)}>
             <span class="title">{group.title}</span>
             <span class="badge">{group.articleCount}</span>
+            <span
+              class="remove"
+              role="button"
+              tabindex="0"
+              aria-label={`Remove ${group.title}`}
+              on:click|stopPropagation={() => onRemoveGroup(group.id)}
+              on:keydown|stopPropagation={(e) => { if (e.key === 'Enter' || e.key === ' ') onRemoveGroup(group.id); }}
+            >&times;</span>
           </button>
-          <button
-            class="remove"
-            aria-label={`Remove ${group.title}`}
-            on:click={() => onRemoveGroup(group.id)}
-          >&times;</button>
         </li>
       {/each}
     </ul>
@@ -42,6 +45,7 @@
     background: var(--bg-panel);
     border: 1px solid var(--border-light);
     box-shadow: var(--shadow-sm);
+    overflow: hidden;
   }
 
   .header {
@@ -84,8 +88,8 @@
   }
 
   li {
-    position: relative;
     border-radius: 0.5rem;
+    min-width: 0;
   }
 
   .group-button {
@@ -93,6 +97,7 @@
     align-items: center;
     gap: 0.5rem;
     width: 100%;
+    min-width: 0;
     text-align: left;
     padding: 0.5rem 0.625rem;
     border-radius: 0.5rem;
@@ -134,9 +139,7 @@
   }
 
   .remove {
-    position: absolute;
-    right: -0.25rem;
-    top: -0.25rem;
+    flex-shrink: 0;
     width: 1.25rem;
     height: 1.25rem;
     border: 1px solid var(--border-light);
