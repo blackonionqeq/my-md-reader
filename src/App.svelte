@@ -573,6 +573,17 @@
     </section>
 
     <aside class:panel-hidden={!showOutline} class="right-column">
+      <div class="group-detail-wrapper" bind:this={directoryWrapper} on:scroll={() => { if (directoryWrapper && !restoringDirectoryScroll) saveDirectoryScroll(directoryWrapper.scrollTop); }}>
+        <GroupDetail
+          group={selectedGroup}
+          {articles}
+          {selectedArticleId}
+          onSelectArticle={handleSelectArticle}
+          onDownloadAll={handleDownloadAll}
+          onRetryFailed={handleRetryFailed}
+        />
+      </div>
+
       <section class="outline-card">
         <h2>Outline</h2>
         {#if outline.length > 0}
@@ -587,17 +598,6 @@
           <p>No headings found for this article.</p>
         {/if}
       </section>
-
-      <div class="group-detail-wrapper" bind:this={directoryWrapper} on:scroll={() => { if (directoryWrapper && !restoringDirectoryScroll) saveDirectoryScroll(directoryWrapper.scrollTop); }}>
-        <GroupDetail
-          group={selectedGroup}
-          {articles}
-          {selectedArticleId}
-          onSelectArticle={handleSelectArticle}
-          onDownloadAll={handleDownloadAll}
-          onRetryFailed={handleRetryFailed}
-        />
-      </div>
     </aside>
   </main>
 
@@ -835,7 +835,7 @@
     background: var(--bg-panel);
     border: 1px solid var(--border-light);
     box-shadow: var(--shadow-sm);
-    max-height: 50vh;
+    max-height: 25vh;
     overflow-y: auto;
   }
 
