@@ -66,6 +66,7 @@ async function loadHljs(): Promise<HighlightCoreModule['default']> {
     Promise.all([
       import('highlight.js/lib/core') as Promise<HighlightCoreModule>,
       import('highlight.js/lib/languages/bash') as Promise<HighlightLanguageModule>,
+      import('highlight.js/lib/languages/go') as Promise<HighlightLanguageModule>,
       import('highlight.js/lib/languages/javascript') as Promise<HighlightLanguageModule>,
       import('highlight.js/lib/languages/json') as Promise<HighlightLanguageModule>,
       import('highlight.js/lib/languages/markdown') as Promise<HighlightLanguageModule>,
@@ -84,6 +85,7 @@ async function loadHljs(): Promise<HighlightCoreModule['default']> {
 
   const registeredLanguages: Array<[name: string, aliases: string[]]> = [
     ['bash', ['bash', 'sh', 'shell', 'zsh']],
+    ['go', ['go', 'golang']],
     ['javascript', ['javascript', 'js', 'jsx']],
     ['json', ['json']],
     ['markdown', ['markdown', 'md']],

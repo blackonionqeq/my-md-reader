@@ -59,7 +59,7 @@ When articles are downloaded, `content-service.ts` extracts image URLs from Mark
 ## Performance Notes
 
 - The Markdown rendering stack (`markdown-it`, `highlight.js`, `dompurify`) is intentionally lazy-loaded via dynamic imports.
-- Syntax highlighting is deferred — markdown renders immediately, then highlighting applies progressively. Supported languages: bash, javascript, json, markdown, plaintext, python, rust, sql, typescript, xml, yaml.
+- Syntax highlighting is deferred — markdown renders immediately, then highlighting applies progressively. Supported languages: bash, go, javascript, json, markdown, plaintext, python, rust, sql, typescript, xml, yaml.
 - Mermaid is separately lazy-loaded only when `pre.mermaid` blocks exist in rendered content.
 - `luma-peek` (image viewer) is lazy-loaded in `ReaderPane` only when an image is clicked.
 - `vite.config.ts` uses Vite 8's `rolldownOptions` with explicit chunk groups for the markdown stack, Dexie, and Svelte runtime.
