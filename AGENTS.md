@@ -12,6 +12,10 @@ Primary user flows:
 - Open a local `.md` file temporarily, or import multiple local files into the bookshelf.
 - Drag-and-drop `.md` files onto the app (desktop only).
 - Read cached content with Mermaid diagram support, preserve reading progress, toggle favorites, enter focus mode.
+- Navigate between articles with previous/next buttons or left/right arrow keys.
+- Browse article outline (table of contents extracted from headings) in the sidebar.
+- Resume where you left off — last-opened article and scroll position restore on launch.
+- Open `.md` files directly from the desktop OS via PWA file handling.
 
 ## Architecture
 
@@ -20,7 +24,9 @@ Primary user flows:
 - **Service layer** (`src/lib/content-service.ts`): all persistence, download, retry, and import logic. Prefer changing this file for behavior changes before pushing logic into components.
 - **Database** (`src/lib/db.ts`): Dexie schema (currently v2) with tables: `sources`, `groups`, `articles`, `readingStates`, `assets`.
 - **Rendering** (`src/lib/markdown.ts`): lazy-loaded pipeline — `markdown-it` + `highlight.js` (selective language imports) + `dompurify` + `mermaid`. All heavy dependencies stay out of the initial bundle.
-- **Components**: `ReaderPane`, `Bookshelf`, `GroupDetail`, `AddSourceForm`, `SettingsPanel`, `UpdatePrompt`.
+- **Components**: `ReaderPane`, `Bookshelf`, `GroupDetail`, `AddSourceForm`, `SettingsPanel`, `UpdatePrompt`, `ManifestHelpDialog`.
+- **Utilities**: `focus-mode.ts` (fullscreen focus mode with F11 shortcut), `outline.ts` (heading extraction for ToC sidebar), `reader-scroll.ts` (scroll position resolution on article open), `settings.ts` (theme/font/last-opened persistence via localStorage), `format.ts` (relative time and status labels), `id.ts` (prefixed ID generation), `drop-import.ts` (drag-and-drop file handling).
+- **Image viewer**: `luma-peek` is lazy-loaded in `ReaderPane` for inline image viewing.
 
 ### Offline image caching
 
@@ -34,7 +40,11 @@ When articles are downloaded, `content-service.ts` extracts image URLs from Mark
 
 **Local file flow**: single file becomes a temporary in-memory article; multiple files are imported as a local group. Drag-and-drop uses the same paths via `drop-import.ts`.
 
-**Reading flow**: `App.svelte` selects group/article → `hydrateArticleAssets` resolves offline images → `ReaderPane` renders HTML, extracts headings, renders Mermaid blocks → scroll position and favorites persisted through `content-service.ts`.
+**Reading flow**: `App.svelte` selects group/article → `hydrateArticleAssets` resolves offline images → `ReaderPane` renders HTML, extracts headings, renders Mermaid blocks → scroll position and favorites persisted through `content-service.ts`. On launch, `settings.ts` restores the last-opened group/article and scroll position.
+
+**Download progress**: `downloadGroupArticles` accepts an `onProgress` callback reporting per-article completion. The UI shows real-time progress with a mobile toast.
+
+**Theme system**: `settings.ts` manages light/dark/system theme modes. `applyTheme` sets the `data-theme` attribute and dynamically updates the `<meta name="theme-color">` tag (including listening for `prefers-color-scheme` changes in system mode).
 
 ## Build and Test Commands
 
@@ -49,9 +59,12 @@ When articles are downloaded, `content-service.ts` extracts image URLs from Mark
 ## Performance Notes
 
 - The Markdown rendering stack (`markdown-it`, `highlight.js`, `dompurify`) is intentionally lazy-loaded via dynamic imports.
+- Syntax highlighting is deferred — markdown renders immediately, then highlighting applies progressively. Supported languages: bash, javascript, json, markdown, plaintext, python, rust, sql, typescript, xml, yaml.
 - Mermaid is separately lazy-loaded only when `pre.mermaid` blocks exist in rendered content.
+- `luma-peek` (image viewer) is lazy-loaded in `ReaderPane` only when an image is clicked.
 - `vite.config.ts` uses Vite 8's `rolldownOptions` with explicit chunk groups for the markdown stack, Dexie, and Svelte runtime.
 - Workbox runtime-caches mermaid chunks with a `CacheFirst` strategy.
+- The PWA manifest uses `display: 'fullscreen'` with `display_override: ['fullscreen', 'standalone']` and registers a `file_handlers` entry for `.md` files.
 - If you add heavy reader-only dependencies, keep them behind the same lazy boundary.
 
 ## Editing Guidance
