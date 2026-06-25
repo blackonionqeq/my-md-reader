@@ -459,6 +459,12 @@
     color: var(--danger);
   }
 
+  @media (max-width: 1100px) {
+    .article-nav {
+      margin-bottom: 4rem;
+    }
+  }
+
   @media (max-width: 900px) {
     .reader {
       height: auto;
