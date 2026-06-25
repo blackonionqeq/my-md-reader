@@ -20,6 +20,10 @@
   export let onToggleFavorite: (value: boolean) => void = () => {};
   export let onOutlineChange: (headings: OutlineHeading[]) => void = () => {};
   export let onImportTemporary: (article: TemporaryArticle) => void = () => {};
+  export let onNavigatePrevious: (() => void) | null = null;
+  export let onNavigateNext: (() => void) | null = null;
+  export let previousTitle: string | null = null;
+  export let nextTitle: string | null = null;
 
   let container: HTMLElement | null = null;
   let renderedHtml = '';
@@ -209,6 +213,26 @@
         style={`--reader-font-size:${fontSize}px;`}
       >
         {@html renderedHtml}
+        {#if onNavigatePrevious || onNavigateNext}
+          <nav class="article-nav">
+            {#if onNavigatePrevious}
+              <button class="nav-btn nav-prev" on:click|stopPropagation={onNavigatePrevious}>
+                <span class="nav-arrow">&larr;</span>
+                <span class="nav-label">{previousTitle ?? 'Previous'}</span>
+              </button>
+            {:else}
+              <div></div>
+            {/if}
+            {#if onNavigateNext}
+              <button class="nav-btn nav-next" on:click|stopPropagation={onNavigateNext}>
+                <span class="nav-label">{nextTitle ?? 'Next'}</span>
+                <span class="nav-arrow">&rarr;</span>
+              </button>
+            {:else}
+              <div></div>
+            {/if}
+          </nav>
+        {/if}
       </article>
     {/if}
   {:else}
@@ -381,6 +405,53 @@
     display: grid;
     place-items: center;
     text-align: center;
+  }
+
+  .article-nav {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-top: 3rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid var(--border-light);
+    font-family: var(--font-ui);
+  }
+
+  .nav-btn {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.6rem 1rem;
+    border: 1px solid var(--border-light);
+    border-radius: 0.5rem;
+    background: var(--bg-app);
+    color: var(--text-main);
+    font-size: 0.85rem;
+    font-weight: 500;
+    cursor: pointer;
+    max-width: 45%;
+  }
+
+  .nav-btn:hover {
+    background: var(--bg-hover);
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+
+  .nav-next {
+    margin-left: auto;
+    text-align: right;
+  }
+
+  .nav-arrow {
+    flex-shrink: 0;
+    font-size: 1rem;
+  }
+
+  .nav-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .error {

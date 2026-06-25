@@ -469,9 +469,35 @@
   onDestroy(() => {
     focusController?.destroy();
   });
+
+  function navigateArticle(direction: -1 | 1): void {
+    if (!selectedArticleId || articles.length === 0) return;
+    const idx = articles.findIndex((a) => a.id === selectedArticleId);
+    if (idx === -1) return;
+    const next = idx + direction;
+    if (next < 0 || next >= articles.length) return;
+    openArticle(articles[next]!.id);
+  }
+
+  $: currentArticleIndex = selectedArticleId
+    ? articles.findIndex((a) => a.id === selectedArticleId)
+    : -1;
+  $: previousArticleTitle =
+    currentArticleIndex > 0 ? (articles[currentArticleIndex - 1]?.title ?? null) : null;
+  $: nextArticleTitle =
+    currentArticleIndex >= 0 && currentArticleIndex < articles.length - 1
+      ? (articles[currentArticleIndex + 1]?.title ?? null)
+      : null;
 </script>
 
-<svelte:window on:keydown={(e) => { if (e.key === 'F11') { e.preventDefault(); toggleFocusMode(); } }} />
+<svelte:window on:keydown={(e) => {
+  if (e.key === 'F11') { e.preventDefault(); toggleFocusMode(); }
+  if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+    const el = e.target as HTMLElement;
+    if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable) return;
+    navigateArticle(e.key === 'ArrowLeft' ? -1 : 1);
+  }
+}} />
 
 <svelte:head>
   <title>My MD Reader</title>
@@ -569,6 +595,10 @@
           outline = headings;
         }}
         onImportTemporary={handleImportTemporary}
+        onNavigatePrevious={previousArticleTitle != null ? () => navigateArticle(-1) : null}
+        onNavigateNext={nextArticleTitle != null ? () => navigateArticle(1) : null}
+        previousTitle={previousArticleTitle}
+        nextTitle={nextArticleTitle}
       />
     </section>
 
