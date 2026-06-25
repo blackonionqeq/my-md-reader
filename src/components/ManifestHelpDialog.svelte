@@ -1,16 +1,19 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
-  import { renderMarkdownToHtml } from '../lib/markdown';
+  import { onMount, tick } from 'svelte';
+  import { renderMarkdownToHtml, highlightCodeBlocks } from '../lib/markdown';
   import manifestDoc from '../../docs/manifest-format.md?raw';
 
   export let open = false;
   export let onClose: () => void = () => {};
 
   let dialog: HTMLDialogElement | null = null;
+  let contentEl: HTMLElement | null = null;
   let renderedHtml = '';
 
   onMount(async () => {
     renderedHtml = await renderMarkdownToHtml(manifestDoc);
+    await tick();
+    if (contentEl) highlightCodeBlocks(contentEl);
   });
 
   $: if (dialog) {
@@ -35,7 +38,7 @@
       <h2>Manifest Format</h2>
       <button class="close-btn" on:click={onClose} aria-label="Close">&times;</button>
     </header>
-    <article class="reader">
+    <article class="reader" bind:this={contentEl}>
       {@html renderedHtml}
     </article>
   </div>

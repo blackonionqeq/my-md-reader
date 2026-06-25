@@ -67,7 +67,11 @@ export default defineConfig({
           groups: [
             {
               name: 'markdown-stack',
-              test: /node_modules[\\/](markdown-it|highlight\.js|dompurify)[\\/]/
+              test: /node_modules[\\/](markdown-it|dompurify)[\\/]/
+            },
+            {
+              name: 'highlight-stack',
+              test: /node_modules[\\/]highlight\.js[\\/]/
             },
             {
               name: 'storage-stack',

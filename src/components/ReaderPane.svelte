@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte';
-  import { renderMarkdownToHtml, renderMermaidBlocks } from '../lib/markdown';
+  import { renderMarkdownToHtml, renderMermaidBlocks, highlightCodeBlocks } from '../lib/markdown';
   import { collectHeadings } from '../lib/outline';
   import { resolveScrollTarget } from '../lib/reader-scroll';
   import type { OutlineHeading, ReaderArticle, ReadingState, TemporaryArticle } from '../lib/types';
@@ -56,6 +56,7 @@
       }
 
       if (container) {
+        highlightCodeBlocks(container);
         await renderMermaidBlocks(container);
         onOutlineChange(collectHeadings(container));
         const target = resolveScrollTarget({

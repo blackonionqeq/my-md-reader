@@ -31,30 +31,56 @@ function escapeHtml(str: string): string {
 let rendererPromise: Promise<MarkdownRenderer> | null = null;
 
 async function createRenderer(): Promise<MarkdownRenderer> {
-  const [markdownItModule, highlightCoreModule, domPurifyModule] = await Promise.all([
+  const [markdownItModule, domPurifyModule] = await Promise.all([
     import('markdown-it') as Promise<MarkdownItModule>,
-    import('highlight.js/lib/core') as Promise<HighlightCoreModule>,
     import('dompurify') as Promise<DomPurifyModule>,
-    import('highlight.js/styles/github.css')
   ]);
 
   const MarkdownIt = markdownItModule.default;
-  const hljs = highlightCoreModule.default;
   const DOMPurify = domPurifyModule.default;
 
-  const languageModules = await Promise.all([
-    import('highlight.js/lib/languages/bash') as Promise<HighlightLanguageModule>,
-    import('highlight.js/lib/languages/javascript') as Promise<HighlightLanguageModule>,
-    import('highlight.js/lib/languages/json') as Promise<HighlightLanguageModule>,
-    import('highlight.js/lib/languages/markdown') as Promise<HighlightLanguageModule>,
-    import('highlight.js/lib/languages/plaintext') as Promise<HighlightLanguageModule>,
-    import('highlight.js/lib/languages/python') as Promise<HighlightLanguageModule>,
-    import('highlight.js/lib/languages/rust') as Promise<HighlightLanguageModule>,
-    import('highlight.js/lib/languages/sql') as Promise<HighlightLanguageModule>,
-    import('highlight.js/lib/languages/typescript') as Promise<HighlightLanguageModule>,
-    import('highlight.js/lib/languages/xml') as Promise<HighlightLanguageModule>,
-    import('highlight.js/lib/languages/yaml') as Promise<HighlightLanguageModule>
+  const markdown = new MarkdownIt({
+    html: false,
+    linkify: true,
+    typographer: true,
+    highlight(str: string, lang: string) {
+      if (lang && MERMAID_ALIASES.has(lang.toLowerCase())) {
+        return `<pre class="mermaid">${escapeHtml(str.trimEnd())}</pre>`;
+      }
+      return '';
+    }
+  });
+
+  return {
+    render(content: string): string {
+      const rawHtml = markdown.render(content);
+      return DOMPurify.sanitize(rawHtml, { ALLOWED_URI_REGEXP });
+    }
+  };
+}
+
+let hljsPromise: Promise<HighlightCoreModule['default']> | null = null;
+
+async function loadHljs(): Promise<HighlightCoreModule['default']> {
+  const [[highlightCoreModule, ...languageModules]] = await Promise.all([
+    Promise.all([
+      import('highlight.js/lib/core') as Promise<HighlightCoreModule>,
+      import('highlight.js/lib/languages/bash') as Promise<HighlightLanguageModule>,
+      import('highlight.js/lib/languages/javascript') as Promise<HighlightLanguageModule>,
+      import('highlight.js/lib/languages/json') as Promise<HighlightLanguageModule>,
+      import('highlight.js/lib/languages/markdown') as Promise<HighlightLanguageModule>,
+      import('highlight.js/lib/languages/plaintext') as Promise<HighlightLanguageModule>,
+      import('highlight.js/lib/languages/python') as Promise<HighlightLanguageModule>,
+      import('highlight.js/lib/languages/rust') as Promise<HighlightLanguageModule>,
+      import('highlight.js/lib/languages/sql') as Promise<HighlightLanguageModule>,
+      import('highlight.js/lib/languages/typescript') as Promise<HighlightLanguageModule>,
+      import('highlight.js/lib/languages/xml') as Promise<HighlightLanguageModule>,
+      import('highlight.js/lib/languages/yaml') as Promise<HighlightLanguageModule>,
+    ]),
+    import('highlight.js/styles/github.css'),
   ]);
+
+  const hljs = highlightCoreModule.default;
 
   const registeredLanguages: Array<[name: string, aliases: string[]]> = [
     ['bash', ['bash', 'sh', 'shell', 'zsh']],
@@ -84,33 +110,27 @@ async function createRenderer(): Promise<MarkdownRenderer> {
     });
   });
 
-  const markdown = new MarkdownIt({
-    html: false,
-    linkify: true,
-    typographer: true,
-    highlight(str: string, lang: string) {
-      if (lang && MERMAID_ALIASES.has(lang.toLowerCase())) {
-        return `<pre class="mermaid">${escapeHtml(str.trimEnd())}</pre>`;
-      }
+  return hljs;
+}
 
-      if (lang && hljs.getLanguage(lang)) {
-        try {
-          return `<pre class="hljs"><code>${hljs.highlight(str, { language: lang }).value}</code></pre>`;
-        } catch {
-          return '';
-        }
-      }
+export async function highlightCodeBlocks(container: HTMLElement): Promise<void> {
+  const codeBlocks = container.querySelectorAll<HTMLElement>('pre > code[class*="language-"]');
+  if (codeBlocks.length === 0) return;
 
-      return '';
-    }
-  });
+  if (!hljsPromise) {
+    hljsPromise = loadHljs();
+  }
+  const hljs = await hljsPromise;
 
-  return {
-    render(content: string): string {
-      const rawHtml = markdown.render(content);
-      return DOMPurify.sanitize(rawHtml, { ALLOWED_URI_REGEXP });
-    }
-  };
+  for (const block of codeBlocks) {
+    const langClass = Array.from(block.classList).find((c) => c.startsWith('language-'));
+    if (!langClass) continue;
+    const lang = langClass.slice(9);
+    if (MERMAID_ALIASES.has(lang)) continue;
+    if (!hljs.getLanguage(lang)) continue;
+
+    hljs.highlightElement(block);
+  }
 }
 
 async function getRenderer(): Promise<MarkdownRenderer> {
