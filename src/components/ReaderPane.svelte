@@ -256,7 +256,7 @@
     justify-content: space-between;
     gap: 1rem;
     align-items: start;
-    margin-bottom: 1rem;
+    margin-bottom: 0.5rem;
   }
 
   .empty p,
@@ -272,8 +272,8 @@
   }
 
   .reader-header h1 {
-    font-size: clamp(1.5rem, 3vw, 2.2rem);
-    margin: 0.5rem 0 0;
+    font-size: clamp(1.25rem, 2.5vw, 1.6rem);
+    margin: 0.25rem 0 0;
     font-family: var(--font-serif);
   }
 
@@ -315,7 +315,7 @@
   .reader {
     min-height: 0;
     overflow: auto;
-    padding: 2.5rem 3rem;
+    padding: 1.5rem 2.5rem;
     border-radius: 1rem;
     background: var(--bg-panel);
     border: 1px solid var(--border-light);

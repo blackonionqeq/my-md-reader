@@ -523,9 +523,9 @@
   {/if}
 
   <header class="topbar">
-    <div>
-      <span class="eyebrow">Offline-first markdown reader</span>
+    <div class="topbar-brand">
       <h1>My MD Reader</h1>
+      <span class="eyebrow">Offline-first markdown reader</span>
     </div>
     <div class="topbar-actions">
       <span class:offline={!online} class="network-dot" title={online ? 'Online' : 'Offline'}></span>
@@ -661,7 +661,7 @@
 
 <style>
   .app-shell {
-    padding: 1.25rem;
+    padding: 0.75rem 1.25rem;
     height: 100vh;
     display: flex;
     flex-direction: column;
@@ -673,18 +673,24 @@
     justify-content: space-between;
     align-items: center;
     gap: 1rem;
-    margin-bottom: 1.5rem;
+    margin-bottom: 0.75rem;
+  }
+
+  .topbar-brand {
+    display: flex;
+    align-items: baseline;
+    gap: 0.75rem;
   }
 
   .topbar h1 {
-    margin: 0.15rem 0 0;
-    font-size: clamp(1.5rem, 2.5vw, 2rem);
+    margin: 0;
+    font-size: 1.35rem;
     letter-spacing: -0.02em;
     color: var(--text-main);
   }
 
   .eyebrow {
-    font-size: 0.75rem;
+    font-size: 0.65rem;
     text-transform: uppercase;
     letter-spacing: 0.1em;
     color: var(--accent);
@@ -1038,6 +1044,14 @@
   }
 
   @media (max-width: 1100px) {
+    .topbar-brand {
+      flex-wrap: wrap;
+    }
+
+    .eyebrow {
+      display: none;
+    }
+
     .app-shell {
       height: auto;
       overflow: visible;
