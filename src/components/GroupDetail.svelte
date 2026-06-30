@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { tick } from 'svelte';
   import { articleStatusLabel } from '../lib/format';
   import type { Article, Group } from '../lib/types';
 
@@ -8,6 +9,13 @@
   export let onSelectArticle: (articleId: string) => void = () => {};
   export let onDownloadAll: () => void = () => {};
   export let onRetryFailed: () => void = () => {};
+
+  $: if (selectedArticleId) {
+    tick().then(() => {
+      const el = document.querySelector('.group-detail-list .selected');
+      el?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    });
+  }
 </script>
 
 <section class="card">
@@ -31,7 +39,7 @@
       {/if}
     </div>
 
-    <ul>
+    <ul class="group-detail-list">
       {#each articles as article}
         <li class:selected={article.id === selectedArticleId}>
           <button class="article-button" on:click={() => onSelectArticle(article.id)}>
