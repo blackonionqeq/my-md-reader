@@ -17,7 +17,6 @@
     scrollPosition: number;
     progressRatio: number;
   }) => void = () => {};
-  export let onToggleFavorite: (value: boolean) => void = () => {};
   export let onOutlineChange: (headings: OutlineHeading[]) => void = () => {};
   export let onImportTemporary: (article: TemporaryArticle) => void = () => {};
   export let onNavigatePrevious: (() => void) | null = null;
@@ -179,20 +178,12 @@
 <section class="reader-shell">
   {#if article}
     <header class="reader-header">
-      <div>
-        <small>{isTemporaryArticle(article) ? 'Temporary local file' : 'Reader'}</small>
-        <h1>{article.title}</h1>
-      </div>
-      <div class="actions">
-        {#if !isTemporaryArticle(article)}
-          <button class:favorited={readingState?.isFavorite} on:click={() => onToggleFavorite(!(readingState?.isFavorite ?? false))}>
-            {readingState?.isFavorite ? 'Favorited' : 'Favorite'}
-          </button>
-        {/if}
-        {#if isTemporaryArticle(article)}
+      <h1>{article.title}</h1>
+      {#if isTemporaryArticle(article)}
+        <div class="actions">
           <button class="import" on:click={() => onImportTemporary(article)}>Add to shelf</button>
-        {/if}
-      </div>
+        </div>
+      {/if}
     </header>
 
     {#if !('content' in article) || !article.content}
@@ -255,8 +246,8 @@
     display: flex;
     justify-content: space-between;
     gap: 1rem;
-    align-items: start;
-    margin-bottom: 0.5rem;
+    align-items: center;
+    margin-bottom: 0.35rem;
   }
 
   .empty p,
@@ -264,16 +255,9 @@
     color: var(--text-muted);
   }
 
-  .reader-header small {
-    font-size: 0.8rem;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    color: var(--text-muted);
-  }
-
   .reader-header h1 {
     font-size: clamp(1.25rem, 2.5vw, 1.6rem);
-    margin: 0.25rem 0 0;
+    margin: 0;
     font-family: var(--font-serif);
   }
 
@@ -294,12 +278,6 @@
 
   .actions button:hover {
     background: var(--bg-hover);
-  }
-
-  .actions button.favorited {
-    background: var(--accent-soft);
-    color: var(--accent);
-    border-color: var(--accent);
   }
 
   .actions .import {

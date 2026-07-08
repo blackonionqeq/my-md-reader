@@ -23,8 +23,7 @@
     saveManifestSource,
     saveReadingProgress,
     saveTemporaryArticle,
-    saveUrlArticle,
-    toggleFavorite
+    saveUrlArticle
   } from './lib/content-service';
   import { dropImport } from './lib/drop-import';
   import type { FocusModeController } from './lib/focus-mode';
@@ -74,9 +73,26 @@
   let directoryWrapper: HTMLDivElement | null = null;
   let restoringDirectoryScroll = false;
 
+  let messageTimer: number | undefined;
+
   function setMessage(value: string, tone: 'info' | 'error' = 'info'): void {
     message = value;
     messageTone = tone;
+
+    if (messageTimer) {
+      window.clearTimeout(messageTimer);
+      messageTimer = undefined;
+    }
+    if (value) {
+      messageTimer = window.setTimeout(() => {
+        // Keep the notice visible while a download is in flight — the mobile
+        // toast mirrors it and progress updates will reset the timer anyway.
+        if (!downloading) {
+          message = '';
+        }
+        messageTimer = undefined;
+      }, 3000);
+    }
   }
 
   async function refreshGroups(): Promise<void> {
@@ -249,19 +265,6 @@
     await saveReadingProgress(payload);
     readingState = (await loadReadingState(payload.articleId)) ?? null;
     await refreshGroups();
-  }
-
-  async function handleToggleFavorite(value: boolean): Promise<void> {
-    if (!selectedArticle || !selectedGroupId || !selectedArticleId) {
-      return;
-    }
-
-    if ('isTemporary' in selectedArticle) {
-      return;
-    }
-
-    await toggleFavorite(selectedArticleId, selectedGroupId, value);
-    readingState = (await loadReadingState(selectedArticleId)) ?? null;
   }
 
   function openImportPicker(): void {
@@ -468,6 +471,9 @@
 
   onDestroy(() => {
     focusController?.destroy();
+    if (messageTimer) {
+      window.clearTimeout(messageTimer);
+    }
   });
 
   function navigateArticle(direction: -1 | 1): void {
@@ -590,7 +596,6 @@
         fontSize={settings.fontSize}
         {online}
         onSaveProgress={handleSaveProgress}
-        onToggleFavorite={handleToggleFavorite}
         onOutlineChange={(headings) => {
           outline = headings;
         }}
