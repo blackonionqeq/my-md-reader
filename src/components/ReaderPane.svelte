@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte';
+  import { fade } from 'svelte/transition';
   import { renderMarkdownToHtml, renderMermaidBlocks, highlightCodeBlocks } from '../lib/markdown';
   import { collectHeadings } from '../lib/outline';
   import { resolveScrollTarget } from '../lib/reader-scroll';
@@ -30,6 +31,7 @@
   let scrollTimer: number | undefined;
   let renderRequestId = 0;
   let imageViewer: Viewer | null = null;
+  let showScrollTop = false;
 
   function isTemporaryArticle(value: ReaderArticle | null): value is TemporaryArticle {
     return Boolean(value && 'isTemporary' in value);
@@ -153,12 +155,18 @@
   // never fires.  We listen on the window to catch page-level scrolling.
   function handleWindowScroll(): void {
     if (isContainerScrollable()) {
+      showScrollTop = false;
       return;
     }
+    showScrollTop = window.scrollY > window.innerHeight * 2;
     if (scrollTimer) {
       window.clearTimeout(scrollTimer);
     }
     scrollTimer = window.setTimeout(() => persistProgress(), 200);
+  }
+
+  function scrollToTop(): void {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
   onMount(() => {
@@ -225,6 +233,16 @@
           </nav>
         {/if}
       </article>
+      {#if showScrollTop}
+        <button
+          class="scroll-top-fab"
+          transition:fade={{ duration: 150 }}
+          on:click={scrollToTop}
+          aria-label="Back to top"
+        >
+          <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M10 16V4M4.5 9.5 10 4l5.5 5.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+      {/if}
     {/if}
   {:else}
     <div class="empty reader-placeholder">
@@ -443,6 +461,10 @@
     }
   }
 
+  .scroll-top-fab {
+    display: none;
+  }
+
   @media (max-width: 900px) {
     .reader {
       height: auto;
@@ -452,6 +474,23 @@
 
     .reader-header {
       flex-direction: column;
+    }
+
+    .scroll-top-fab {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      position: fixed;
+      bottom: 5rem;
+      right: 1.25rem;
+      width: 3rem;
+      height: 3rem;
+      border-radius: 50%;
+      border: 1px solid var(--border-light);
+      background: var(--bg-panel);
+      color: var(--text-main);
+      box-shadow: var(--shadow-md);
+      z-index: 100;
     }
   }
 </style>

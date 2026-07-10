@@ -760,7 +760,8 @@
   .focus-active .topbar,
   .focus-active .notice,
   .focus-active .mobile-fab-group,
-  .focus-active .mobile-backdrop {
+  .focus-active .mobile-backdrop,
+  .focus-active :global(.scroll-top-fab) {
     display: none;
   }
 
