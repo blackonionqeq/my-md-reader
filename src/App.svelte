@@ -780,7 +780,7 @@
   .focus-active .reader-column {
     width: 75vw;
     margin: 0 auto;
-    padding: 2rem 1.5rem;
+    padding: 0.5rem 1.5rem 2rem;
   }
 
   .exit-focus {
