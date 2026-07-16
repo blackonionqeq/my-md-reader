@@ -1,4 +1,5 @@
 import { readFile } from 'node:fs/promises';
+import { Blob as NodeBlob } from 'node:buffer';
 import path from 'node:path';
 import 'fake-indexeddb/auto';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -9,6 +10,7 @@ import {
   computeNextRetryAt,
   extractMarkdownImageUrls,
   extractTitleFromMarkdown,
+  hydrateArticleAssets,
   importLocalFiles,
   loadArticles,
   loadGroups,
@@ -22,6 +24,15 @@ import {
 } from './content-service';
 import { db } from './db';
 import type { Asset } from './types';
+
+function readBlobAsText(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.addEventListener('load', () => resolve(String(reader.result)));
+    reader.addEventListener('error', () => reject(reader.error));
+    reader.readAsText(blob);
+  });
+}
 
 describe('calculateGroupOfflineStatus', () => {
   it('returns downloaded when every article is downloaded', () => {
@@ -64,6 +75,16 @@ beforeEach(async () => {
   }
 
   globalThis.File = TestFile as unknown as typeof File;
+  Object.defineProperties(URL, {
+    createObjectURL: {
+      configurable: true,
+      value: vi.fn(() => 'blob:https://reader.test/cached-image')
+    },
+    revokeObjectURL: {
+      configurable: true,
+      value: vi.fn()
+    }
+  });
 
   if (!db.isOpen()) {
     db.open();
@@ -156,6 +177,70 @@ describe('buildOfflineMarkdown', () => {
       '![ok](mdr-asset://asset:ok)',
       '![failed](./images/failed.png)'
     ].join('\n'));
+  });
+});
+
+describe('hydrateArticleAssets', () => {
+  it('rebuilds a persisted blob with the stored image MIME type', async () => {
+    const persistedBlob = new NodeBlob(['cached-image'], { type: 'application/octet-stream' }) as Blob;
+    await db.assets.put({
+      id: 'asset:cached',
+      articleId: 'article:1',
+      originalUrl: 'https://reader.test/images/cached.bin',
+      blob: persistedBlob,
+      mimeType: 'image/png; charset=binary',
+      status: 'downloaded',
+      attemptCount: 1,
+      createdAt: '2026-05-17T00:00:00.000Z',
+      updatedAt: '2026-05-17T00:00:00.000Z'
+    });
+
+    const article = await hydrateArticleAssets({
+      id: 'article:1',
+      groupId: 'group:1',
+      order: 1,
+      title: 'Cached image',
+      content: '![cached](mdr-asset://asset:cached)',
+      downloadStatus: 'downloaded',
+      createdAt: '2026-05-17T00:00:00.000Z',
+      updatedAt: '2026-05-17T00:00:00.000Z'
+    });
+
+    expect(article.content).toBe('![cached](blob:https://reader.test/cached-image)');
+    expect(URL.createObjectURL).toHaveBeenCalledOnce();
+    const rebuiltBlob = vi.mocked(URL.createObjectURL).mock.calls[0]?.[0] as Blob;
+    expect(rebuiltBlob).not.toBe(persistedBlob);
+    expect(rebuiltBlob.type).toBe('image/png');
+    expect(await readBlobAsText(rebuiltBlob)).toBe('cached-image');
+  });
+
+  it('infers the image MIME type from the original URL when stored types are invalid', async () => {
+    await db.assets.put({
+      id: 'asset:cover',
+      articleId: 'article:2',
+      originalUrl: 'https://reader.test/images/cover.webp?version=2',
+      blob: new NodeBlob(['webp-image']) as Blob,
+      mimeType: 'text/plain',
+      status: 'downloaded',
+      attemptCount: 1,
+      createdAt: '2026-05-17T00:00:00.000Z',
+      updatedAt: '2026-05-17T00:00:00.000Z'
+    });
+
+    const article = await hydrateArticleAssets({
+      id: 'article:2',
+      groupId: 'group:1',
+      order: 2,
+      title: 'Cover',
+      content: '![cover](mdr-asset://asset:cover)',
+      downloadStatus: 'downloaded',
+      createdAt: '2026-05-17T00:00:00.000Z',
+      updatedAt: '2026-05-17T00:00:00.000Z'
+    });
+
+    expect(article.content).toBe('![cover](blob:https://reader.test/cached-image)');
+    const rebuiltBlob = vi.mocked(URL.createObjectURL).mock.calls[0]?.[0] as Blob;
+    expect(rebuiltBlob.type).toBe('image/webp');
   });
 });
 

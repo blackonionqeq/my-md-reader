@@ -24,6 +24,21 @@ const ASSET_RETRY_DELAYS_MS = [1000, 3000, 10000, 30000];
 const ASSET_PLACEHOLDER_PREFIX = 'mdr-asset://';
 const ASSET_MARKDOWN_PATTERN = /!\[([^\]]*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g;
 const ASSET_PLACEHOLDER_PATTERN = new RegExp(`${escapeRegExp(ASSET_PLACEHOLDER_PREFIX)}([^)\\s]+)`, 'g');
+const IMAGE_MIME_TYPES_BY_EXTENSION = new Map([
+  ['avif', 'image/avif'],
+  ['bmp', 'image/bmp'],
+  ['gif', 'image/gif'],
+  ['heic', 'image/heic'],
+  ['heif', 'image/heif'],
+  ['ico', 'image/x-icon'],
+  ['jpeg', 'image/jpeg'],
+  ['jpg', 'image/jpeg'],
+  ['png', 'image/png'],
+  ['svg', 'image/svg+xml'],
+  ['tif', 'image/tiff'],
+  ['tiff', 'image/tiff'],
+  ['webp', 'image/webp']
+]);
 
 const objectUrlRegistry = new Map<string, string>();
 
@@ -42,6 +57,40 @@ function isRemoteImageUrl(url: string): boolean {
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function normalizeImageMimeType(value: string | undefined): string | undefined {
+  const mimeType = value?.split(';', 1)[0]?.trim().toLowerCase();
+  return mimeType?.startsWith('image/') ? mimeType : undefined;
+}
+
+function inferImageMimeType(url: string): string | undefined {
+  try {
+    const pathname = new URL(url).pathname;
+    const extension = pathname.match(/\.([a-z0-9]+)$/i)?.[1]?.toLowerCase();
+    return extension ? IMAGE_MIME_TYPES_BY_EXTENSION.get(extension) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+async function createAssetObjectUrl(asset: Asset): Promise<string | undefined> {
+  if (!asset.blob) {
+    return undefined;
+  }
+
+  try {
+    // Rebuild persisted blobs from bytes because older WebKit releases can
+    // return IndexedDB-backed blobs with an unusable handle or missing MIME.
+    const bytes = await asset.blob.arrayBuffer();
+    const mimeType = normalizeImageMimeType(asset.mimeType)
+      ?? normalizeImageMimeType(asset.blob.type)
+      ?? inferImageMimeType(asset.originalUrl);
+    const blob = new Blob([bytes], mimeType ? { type: mimeType } : undefined);
+    return URL.createObjectURL(blob);
+  } catch {
+    return undefined;
+  }
 }
 
 export function computeNextRetryAt(attemptCount: number, now = Date.now()): string | undefined {
@@ -308,6 +357,24 @@ export async function hydrateArticleAssets(article: Article): Promise<Article> {
 
   const assets = await db.assets.where('articleId').equals(article.id).toArray();
   const assetById = new Map(assets.map((asset) => [asset.id, asset]));
+  const objectUrlByAssetId = new Map<string, string>();
+
+  for (const assetId of new Set(Array.from(article.content.matchAll(ASSET_PLACEHOLDER_PATTERN), (match) => match[1]))) {
+    if (!assetId) {
+      continue;
+    }
+
+    const asset = assetById.get(assetId);
+    if (!asset?.blob) {
+      continue;
+    }
+
+    const objectUrl = await createAssetObjectUrl(asset);
+    if (objectUrl) {
+      objectUrlByAssetId.set(asset.id, objectUrl);
+      objectUrlRegistry.set(`${article.id}:${asset.id}`, objectUrl);
+    }
+  }
 
   const hydratedContent = article.content.replace(
     ASSET_PLACEHOLDER_PATTERN,
@@ -321,10 +388,7 @@ export async function hydrateArticleAssets(article: Article): Promise<Article> {
         return asset.originalUrl;
       }
 
-      const registryKey = `${article.id}:${asset.id}`;
-      const objectUrl = URL.createObjectURL(asset.blob);
-      objectUrlRegistry.set(registryKey, objectUrl);
-      return objectUrl;
+      return objectUrlByAssetId.get(asset.id) ?? asset.originalUrl;
     }
   );
 
