@@ -21,7 +21,7 @@ describe('renderMarkdownToHtml', () => {
     expect(html).toContain('<pre class="mermaid">');
   });
 
-  it('keeps blob: image sources used by hydrated offline assets', async () => {
+  it('keeps blob: image sources for compatibility', async () => {
     const input = '![diagram](blob:http://localhost:5173/0f9c8a2e-demo)';
     const html = await renderMarkdownToHtml(input);
     expect(html).toContain('src="blob:http://localhost:5173/0f9c8a2e-demo"');

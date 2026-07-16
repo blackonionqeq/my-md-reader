@@ -15,8 +15,8 @@ type MarkdownRenderer = {
 
 const MERMAID_ALIASES = new Set(['mermaid', 'mmd']);
 
-// DOMPurify's default allowlist rejects blob: URIs, which hydrated offline
-// images rely on (object URLs created from cached IndexedDB blobs).
+// Keep blob: URIs for compatibility with trusted rendered Markdown. The normal
+// offline image path uses HTTP(S) URLs served from Cache Storage by Workbox.
 const ALLOWED_URI_REGEXP =
   /^(?:(?:(?:f|ht)tps?|mailto|tel|callto|sms|cid|xmpp|matrix|blob):|[^a-z]|[a-z+.\-]+(?:[^a-z+.\-:]|$))/i;
 

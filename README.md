@@ -97,4 +97,5 @@ The generated Nginx site config applies these defaults:
 - [PWA design](docs/superpowers/specs/2026-05-16-md-reader-pwa-design.md)
 - [Bundle splitting design](docs/superpowers/specs/2026-05-16-bundle-splitting-llm-doc-design.md)
 - [Offline image caching design](docs/superpowers/specs/2026-05-17-offline-image-caching-design.md)
+- [Cache Storage image migration design](docs/superpowers/specs/2026-07-16-cache-storage-image-migration-design.md)
 - [Deployment and nginx design](docs/superpowers/specs/2026-05-17-deployment-and-nginx-design.md)
