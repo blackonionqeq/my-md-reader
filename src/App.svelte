@@ -1,11 +1,13 @@
 <script lang="ts">
   import { onDestroy, onMount, tick } from 'svelte';
+  import { useRegisterSW } from 'virtual:pwa-register/svelte';
   import AddSourceForm from './components/AddSourceForm.svelte';
   import Bookshelf from './components/Bookshelf.svelte';
   import GroupDetail from './components/GroupDetail.svelte';
   import ManifestHelpDialog from './components/ManifestHelpDialog.svelte';
   import ReaderPane from './components/ReaderPane.svelte';
   import SettingsPanel from './components/SettingsPanel.svelte';
+  import UpdatePrompt from './components/UpdatePrompt.svelte';
   import {
     clearAllData,
     downloadGroup,
@@ -15,9 +17,11 @@
     loadArticles,
     loadGroups,
     loadReadingState,
+    migrateLegacyAssetsInBackground,
     openSingleLocalFile,
     previewManifest,
     previewUrlArticle,
+    recordArticleImageFailure,
     removeGroup,
     retryFailedArticles,
     saveManifestSource,
@@ -27,6 +31,7 @@
   } from './lib/content-service';
   import { dropImport } from './lib/drop-import';
   import type { FocusModeController } from './lib/focus-mode';
+  import { isServiceWorkerControllingPage } from './lib/image-cache';
   import { applyTheme, clearLastOpened, loadLastOpened, loadSettings, normalizeFontSize, saveDirectoryScroll, saveLastOpened, saveSettings } from './lib/settings';
   import type {
     Article,
@@ -72,8 +77,31 @@
   let focusController: FocusModeController | null = null;
   let directoryWrapper: HTMLDivElement | null = null;
   let restoringDirectoryScroll = false;
+  let swControlled = isServiceWorkerControllingPage();
+  let imageMigrationRunning = false;
 
   let messageTimer: number | undefined;
+
+  const { offlineReady, needRefresh, updateServiceWorker } = useRegisterSW({
+    onRegisteredSW(swUrl, registration) {
+      swControlled = isServiceWorkerControllingPage();
+      console.info('[pwa] service worker registered', {
+        swUrl,
+        scope: registration?.scope,
+        controlled: swControlled,
+        appVersion: __APP_VERSION__,
+        buildTime: __BUILD_TIME__
+      });
+    },
+    onRegisterError(error) {
+      console.error('[pwa] service worker registration failed', {
+        error,
+        appVersion: __APP_VERSION__,
+        buildTime: __BUILD_TIME__
+      });
+      setMessage('Offline service failed to start. Reload while online to retry.', 'error');
+    }
+  });
 
   function setMessage(value: string, tone: 'info' | 'error' = 'info'): void {
     message = value;
@@ -92,6 +120,33 @@
         }
         messageTimer = undefined;
       }, 3000);
+    }
+  }
+
+  async function runImageMigration(): Promise<void> {
+    if (imageMigrationRunning) {
+      return;
+    }
+
+    imageMigrationRunning = true;
+    try {
+      await migrateLegacyAssetsInBackground();
+    } catch (error) {
+      console.error('[image-cache] background migration failed', {
+        controlled: swControlled,
+        appVersion: __APP_VERSION__,
+        buildTime: __BUILD_TIME__,
+        error
+      });
+    } finally {
+      imageMigrationRunning = false;
+    }
+  }
+
+  function handleControllerChange(): void {
+    swControlled = isServiceWorkerControllingPage();
+    if (swControlled) {
+      void runImageMigration();
     }
   }
 
@@ -431,12 +486,19 @@
     applyTheme(settings.theme);
     await refreshGroups();
 
+    console.info('[app] release diagnostics', {
+      appVersion: __APP_VERSION__,
+      buildTime: __BUILD_TIME__,
+      serviceWorkerControlled: swControlled
+    });
+
     window.addEventListener('online', () => {
       online = true;
     });
     window.addEventListener('offline', () => {
       online = false;
     });
+    navigator.serviceWorker?.addEventListener('controllerchange', handleControllerChange);
 
     // Reopen the last-viewed group and article so the user picks up where
     // they left off.  selectGroup already opens the group's lastReadArticle
@@ -467,6 +529,7 @@
     }
 
     await handleLaunchQueue();
+    void runImageMigration();
   });
 
   onDestroy(() => {
@@ -474,6 +537,7 @@
     if (messageTimer) {
       window.clearTimeout(messageTimer);
     }
+    navigator.serviceWorker?.removeEventListener('controllerchange', handleControllerChange);
   });
 
   function navigateArticle(direction: -1 | 1): void {
@@ -534,7 +598,11 @@
       <span class="eyebrow">Offline-first markdown reader</span>
     </div>
     <div class="topbar-actions">
-      <span class:offline={!online} class="network-dot" title={online ? 'Online' : 'Offline'}></span>
+      <span
+        class:offline={!online}
+        class="network-dot"
+        title={`${online ? 'Online' : 'Offline'} · app ${__APP_VERSION__} · ${swControlled ? 'offline service active' : 'offline service not controlling this page'}`}
+      ></span>
       <button class="focus-btn" on:click={toggleFocusMode}>Focus</button>
     </div>
   </header>
@@ -598,6 +666,9 @@
         onSaveProgress={handleSaveProgress}
         onOutlineChange={(headings) => {
           outline = headings;
+        }}
+        onImageError={({ articleId, src, reason }) => {
+          void recordArticleImageFailure(articleId, src, reason);
         }}
         onImportTemporary={handleImportTemporary}
         onNavigatePrevious={previousArticleTitle != null ? () => navigateArticle(-1) : null}
@@ -663,6 +734,16 @@
 
   <ManifestHelpDialog open={showManifestHelp} onClose={() => (showManifestHelp = false)} />
 </div>
+
+<UpdatePrompt
+  offlineReady={$offlineReady}
+  needRefresh={$needRefresh}
+  onReload={() => void updateServiceWorker(true)}
+  onDismiss={() => {
+    offlineReady.set(false);
+    needRefresh.set(false);
+  }}
+/>
 
 <style>
   .app-shell {

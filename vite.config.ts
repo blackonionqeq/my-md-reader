@@ -3,13 +3,21 @@
 import { defineConfig } from 'vite';
 import { svelte } from '@sveltejs/vite-plugin-svelte';
 import { VitePWA } from 'vite-plugin-pwa';
+import packageJson from './package.json';
+import { IMAGE_CACHE_NAME } from './src/lib/image-cache-contract';
+
+const buildTime = new Date().toISOString();
 
 export default defineConfig({
+  define: {
+    __APP_VERSION__: JSON.stringify(packageJson.version),
+    __BUILD_TIME__: JSON.stringify(buildTime)
+  },
   plugins: [
     svelte(),
     VitePWA({
       injectRegister: 'auto',
-      registerType: 'autoUpdate',
+      registerType: 'prompt',
       includeAssets: ['icon.svg'],
       manifest: {
         name: 'My MD Reader',
@@ -48,6 +56,14 @@ export default defineConfig({
         navigateFallback: '/index.html',
         globPatterns: ['**/*.{js,css,html,ico,png,svg,webmanifest}'],
         runtimeCaching: [
+          {
+            urlPattern: ({ request }) => request.destination === 'image',
+            handler: 'CacheFirst',
+            options: {
+              cacheName: IMAGE_CACHE_NAME,
+              cacheableResponse: { statuses: [0, 200] }
+            }
+          },
           {
             urlPattern: /mermaid.*\.(?:js|mjs)$/,
             handler: 'CacheFirst',

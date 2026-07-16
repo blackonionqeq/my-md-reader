@@ -1,5 +1,12 @@
 # Offline Image Caching Design
 
+> Historical design: the IndexedDB Blob/object-URL delivery decisions in this
+> document were superseded on 2026-07-16 by
+> [Cache Storage Image Migration Design](./2026-07-16-cache-storage-image-migration-design.md).
+> IndexedDB now retains asset ownership and retry metadata, while Cache Storage
+> is the binary source of truth and the Workbox service worker serves normal
+> HTTP(S) image requests.
+
 Date: 2026-05-17
 
 ## Goal

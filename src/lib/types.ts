@@ -56,6 +56,7 @@ export interface Asset {
   id: string;
   articleId: string;
   originalUrl: string;
+  /** Transitional v1 payload. Cache Storage is the binary source of truth. */
   blob?: Blob;
   mimeType?: string;
   status: AssetStatus;

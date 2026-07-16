@@ -20,6 +20,7 @@
   }) => void = () => {};
   export let onOutlineChange: (headings: OutlineHeading[]) => void = () => {};
   export let onImportTemporary: (article: TemporaryArticle) => void = () => {};
+  export let onImageError: (payload: { articleId: string; src: string; reason: string }) => void = () => {};
   export let onNavigatePrevious: (() => void) | null = null;
   export let onNavigateNext: (() => void) | null = null;
   export let previousTitle: string | null = null;
@@ -146,6 +147,27 @@
     });
   }
 
+  function handleContentError(event: Event): void {
+    const target = event.target;
+    if (!(target instanceof HTMLImageElement) || !article || isTemporaryArticle(article)) {
+      return;
+    }
+
+    const src = target.currentSrc || target.src;
+    const reason = online
+      ? 'Image failed to load or decode.'
+      : 'Image cache miss or decode failure while offline.';
+    console.error('[image-cache] image element failed', {
+      articleId: article.id,
+      src,
+      online,
+      serviceWorkerControlled: Boolean(navigator.serviceWorker?.controller),
+      appVersion: __APP_VERSION__,
+      buildTime: __BUILD_TIME__
+    });
+    onImageError({ articleId: article.id, src, reason });
+  }
+
   $: void article, restoreScrollPosition, refreshRenderedContent();
   $: if (fontSize && container) {
     container.style.setProperty('--reader-font-size', `${fontSize}px`);
@@ -209,6 +231,7 @@
         bind:this={container}
         on:scroll={handleScroll}
         on:click={handleContentClick}
+        on:error|capture={handleContentError}
         style={`--reader-font-size:${fontSize}px;`}
       >
         {@html renderedHtml}

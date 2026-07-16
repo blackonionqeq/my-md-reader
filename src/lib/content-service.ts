@@ -1,5 +1,15 @@
 import { db } from './db';
 import { createId } from './id';
+import {
+  deleteCachedImage,
+  deleteImageCache,
+  deleteObsoleteImageCaches,
+  fetchAndCacheImage,
+  isServiceWorkerControllingPage,
+  matchCachedImage,
+  migrateLegacyBlobToImageCache,
+  reconcileImageCache
+} from './image-cache';
 import { normalizeManifestPreview, validateManifest } from './manifest';
 import type {
   Article,
@@ -24,23 +34,6 @@ const ASSET_RETRY_DELAYS_MS = [1000, 3000, 10000, 30000];
 const ASSET_PLACEHOLDER_PREFIX = 'mdr-asset://';
 const ASSET_MARKDOWN_PATTERN = /!\[([^\]]*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g;
 const ASSET_PLACEHOLDER_PATTERN = new RegExp(`${escapeRegExp(ASSET_PLACEHOLDER_PREFIX)}([^)\\s]+)`, 'g');
-const IMAGE_MIME_TYPES_BY_EXTENSION = new Map([
-  ['avif', 'image/avif'],
-  ['bmp', 'image/bmp'],
-  ['gif', 'image/gif'],
-  ['heic', 'image/heic'],
-  ['heif', 'image/heif'],
-  ['ico', 'image/x-icon'],
-  ['jpeg', 'image/jpeg'],
-  ['jpg', 'image/jpeg'],
-  ['png', 'image/png'],
-  ['svg', 'image/svg+xml'],
-  ['tif', 'image/tiff'],
-  ['tiff', 'image/tiff'],
-  ['webp', 'image/webp']
-]);
-
-const objectUrlRegistry = new Map<string, string>();
 
 function createAssetPlaceholder(assetId: string): string {
   return `${ASSET_PLACEHOLDER_PREFIX}${assetId}`;
@@ -57,40 +50,6 @@ function isRemoteImageUrl(url: string): boolean {
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
-function normalizeImageMimeType(value: string | undefined): string | undefined {
-  const mimeType = value?.split(';', 1)[0]?.trim().toLowerCase();
-  return mimeType?.startsWith('image/') ? mimeType : undefined;
-}
-
-function inferImageMimeType(url: string): string | undefined {
-  try {
-    const pathname = new URL(url).pathname;
-    const extension = pathname.match(/\.([a-z0-9]+)$/i)?.[1]?.toLowerCase();
-    return extension ? IMAGE_MIME_TYPES_BY_EXTENSION.get(extension) : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-async function createAssetObjectUrl(asset: Asset): Promise<string | undefined> {
-  if (!asset.blob) {
-    return undefined;
-  }
-
-  try {
-    // Rebuild persisted blobs from bytes because older WebKit releases can
-    // return IndexedDB-backed blobs with an unusable handle or missing MIME.
-    const bytes = await asset.blob.arrayBuffer();
-    const mimeType = normalizeImageMimeType(asset.mimeType)
-      ?? normalizeImageMimeType(asset.blob.type)
-      ?? inferImageMimeType(asset.originalUrl);
-    const blob = new Blob([bytes], mimeType ? { type: mimeType } : undefined);
-    return URL.createObjectURL(blob);
-  } catch {
-    return undefined;
-  }
 }
 
 export function computeNextRetryAt(attemptCount: number, now = Date.now()): string | undefined {
@@ -160,52 +119,31 @@ export function rewriteMarkdownImageUrls(
   });
 }
 
-function revokeArticleObjectUrls(articleId: string): void {
-  const keys = Array.from(objectUrlRegistry.keys()).filter((key) => key.startsWith(`${articleId}:`));
-  for (const key of keys) {
-    const url = objectUrlRegistry.get(key);
-    if (url) {
-      URL.revokeObjectURL(url);
-      objectUrlRegistry.delete(key);
-    }
-  }
-}
-
-function revokeAllObjectUrls(): void {
-  for (const url of objectUrlRegistry.values()) {
-    URL.revokeObjectURL(url);
-  }
-
-  objectUrlRegistry.clear();
-}
-
 async function persistPendingAssets(articleId: string, imageUrls: Array<{ original: string; resolved: string }>): Promise<Asset[]> {
   const existingAssets = await db.assets.where('articleId').equals(articleId).toArray();
   const existingByUrl = new Map(existingAssets.map((asset) => [asset.originalUrl, asset]));
   const now = new Date().toISOString();
   const nextResolvedUrls = new Set(imageUrls.map((entry) => entry.resolved));
 
-  const staleAssetIds = existingAssets
-    .filter((asset) => !nextResolvedUrls.has(asset.originalUrl))
-    .map((asset) => asset.id);
+  const staleAssets = existingAssets.filter((asset) => !nextResolvedUrls.has(asset.originalUrl));
 
-  if (staleAssetIds.length > 0) {
-    await db.assets.bulkDelete(staleAssetIds);
+  if (staleAssets.length > 0) {
+    await db.assets.bulkDelete(staleAssets.map((asset) => asset.id));
+    await deleteUnreferencedImageUrls(staleAssets.map((asset) => asset.originalUrl));
   }
 
   const assets: Asset[] = imageUrls.map(({ resolved }) => {
     const existing = existingByUrl.get(resolved);
-    const shouldReuseDownloaded = existing?.status === 'downloaded' && Boolean(existing.blob);
     return {
       id: existing?.id ?? createId('asset'),
       articleId,
       originalUrl: resolved,
       blob: existing?.blob,
       mimeType: existing?.mimeType,
-      status: shouldReuseDownloaded ? 'downloaded' : 'pending',
-      attemptCount: shouldReuseDownloaded ? existing?.attemptCount ?? 0 : 0,
-      nextRetryAt: shouldReuseDownloaded ? undefined : undefined,
-      lastError: shouldReuseDownloaded ? undefined : undefined,
+      status: 'pending',
+      attemptCount: 0,
+      nextRetryAt: undefined,
+      lastError: undefined,
       createdAt: existing?.createdAt ?? now,
       updatedAt: now
     };
@@ -216,6 +154,45 @@ async function persistPendingAssets(articleId: string, imageUrls: Array<{ origin
   }
 
   return assets;
+}
+
+function finalizeCachedAsset(asset: Asset, mimeType?: string): Asset {
+  const cachedAsset: Asset = {
+    ...asset,
+    mimeType: mimeType ?? asset.mimeType,
+    status: 'downloaded',
+    nextRetryAt: undefined,
+    lastError: undefined,
+    updatedAt: new Date().toISOString()
+  };
+
+  if (!cachedAsset.blob || !isServiceWorkerControllingPage()) {
+    return cachedAsset;
+  }
+
+  const { blob: _legacyBlob, ...withoutBlob } = cachedAsset;
+  return withoutBlob;
+}
+
+async function persistCachedAsset(asset: Asset, mimeType?: string): Promise<Asset> {
+  const cachedAsset = finalizeCachedAsset(asset, mimeType);
+  await db.assets.put(cachedAsset);
+  return cachedAsset;
+}
+
+async function deleteUnreferencedImageUrls(urls: Iterable<string>): Promise<void> {
+  for (const url of new Set(urls)) {
+    const referenceCount = await db.assets.filter((asset) => asset.originalUrl === url).count();
+    if (referenceCount > 0) {
+      continue;
+    }
+
+    try {
+      await deleteCachedImage(url);
+    } catch (error) {
+      console.error('[image-cache] failed to delete unreferenced image', { url, error });
+    }
+  }
 }
 
 async function markAssetAttemptFailure(asset: Asset, error: unknown): Promise<Asset> {
@@ -248,22 +225,11 @@ async function downloadAsset(asset: Asset): Promise<Asset> {
   await db.assets.put(downloadingAsset);
 
   try {
-    const response = await fetch(asset.originalUrl);
-    if (!response.ok) {
-      throw new Error(`${response.status} ${response.statusText}`);
-    }
-
-    const blob = await response.blob();
-    const downloadedAsset: Asset = {
+    const response = await fetchAndCacheImage(asset.originalUrl);
+    const downloadedAsset = finalizeCachedAsset({
       ...downloadingAsset,
-      blob,
-      mimeType: response.headers.get('content-type') ?? undefined,
-      status: 'downloaded',
-      attemptCount: downloadingAsset.attemptCount + 1,
-      nextRetryAt: undefined,
-      lastError: undefined,
-      updatedAt: new Date().toISOString()
-    };
+      attemptCount: downloadingAsset.attemptCount + 1
+    }, response.headers.get('content-type') ?? undefined);
 
     await db.assets.put(downloadedAsset);
     return downloadedAsset;
@@ -313,6 +279,39 @@ async function runAssetRetryQueue(
   return Array.from(results.values());
 }
 
+async function ensureAssetCached(asset: Asset): Promise<Asset> {
+  try {
+    const cached = await matchCachedImage(asset.originalUrl);
+    if (cached) {
+      return persistCachedAsset(asset, cached.headers.get('content-type') ?? undefined);
+    }
+
+    if (asset.blob) {
+      const migrated = await migrateLegacyBlobToImageCache({
+        url: asset.originalUrl,
+        blob: asset.blob,
+        mimeType: asset.mimeType
+      });
+      return persistCachedAsset(asset, migrated.headers.get('content-type') ?? undefined);
+    }
+
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      throw new Error('Image cache miss while offline; a network retry is required.');
+    }
+
+    return downloadAsset(asset);
+  } catch (error) {
+    console.error('[image-cache] failed to prepare article image', {
+      assetId: asset.id,
+      articleId: asset.articleId,
+      url: asset.originalUrl,
+      serviceWorkerControlled: isServiceWorkerControllingPage(),
+      error
+    });
+    return markAssetAttemptFailure(asset, error);
+  }
+}
+
 export function buildOfflineMarkdown(articleContent: string, articleUrl: string, assets: Asset[]): string {
   const replacements = new Map<string, string>();
 
@@ -339,6 +338,7 @@ async function downloadArticleAssets(
     const existingAssets = await db.assets.where('articleId').equals(article.id).toArray();
     if (existingAssets.length > 0) {
       await db.assets.bulkDelete(existingAssets.map((asset) => asset.id));
+      await deleteUnreferencedImageUrls(existingAssets.map((asset) => asset.originalUrl));
     }
     return content;
   }
@@ -349,15 +349,12 @@ async function downloadArticleAssets(
 }
 
 export async function hydrateArticleAssets(article: Article): Promise<Article> {
-  revokeArticleObjectUrls(article.id);
-
   if (!article.content || !article.content.includes(ASSET_PLACEHOLDER_PREFIX)) {
     return article;
   }
 
   const assets = await db.assets.where('articleId').equals(article.id).toArray();
   const assetById = new Map(assets.map((asset) => [asset.id, asset]));
-  const objectUrlByAssetId = new Map<string, string>();
 
   for (const assetId of new Set(Array.from(article.content.matchAll(ASSET_PLACEHOLDER_PATTERN), (match) => match[1]))) {
     if (!assetId) {
@@ -365,15 +362,11 @@ export async function hydrateArticleAssets(article: Article): Promise<Article> {
     }
 
     const asset = assetById.get(assetId);
-    if (!asset?.blob) {
+    if (!asset) {
       continue;
     }
 
-    const objectUrl = await createAssetObjectUrl(asset);
-    if (objectUrl) {
-      objectUrlByAssetId.set(asset.id, objectUrl);
-      objectUrlRegistry.set(`${article.id}:${asset.id}`, objectUrl);
-    }
+    assetById.set(asset.id, await ensureAssetCached(asset));
   }
 
   const hydratedContent = article.content.replace(
@@ -383,12 +376,7 @@ export async function hydrateArticleAssets(article: Article): Promise<Article> {
       if (!asset) {
         return placeholder;
       }
-
-      if (!asset.blob) {
-        return asset.originalUrl;
-      }
-
-      return objectUrlByAssetId.get(asset.id) ?? asset.originalUrl;
+      return asset.originalUrl;
     }
   );
 
@@ -396,6 +384,39 @@ export async function hydrateArticleAssets(article: Article): Promise<Article> {
     ...article,
     content: hydratedContent
   };
+}
+
+export async function migrateLegacyAssetsInBackground(batchSize = 8): Promise<void> {
+  await deleteObsoleteImageCaches();
+  const candidates = await db.assets.filter((asset) => asset.status === 'downloaded' || Boolean(asset.blob)).toArray();
+
+  for (let offset = 0; offset < candidates.length; offset += batchSize) {
+    const batch = candidates.slice(offset, offset + batchSize);
+    for (const asset of batch) {
+      await ensureAssetCached(asset);
+    }
+
+    if (offset + batchSize < candidates.length) {
+      await new Promise<void>((resolve) => globalThis.setTimeout(resolve, 0));
+    }
+  }
+
+  const allAssets = await db.assets.toArray();
+  await reconcileImageCache(new Set(allAssets.map((asset) => asset.originalUrl)));
+}
+
+export async function recordArticleImageFailure(articleId: string, imageUrl: string, reason: string): Promise<void> {
+  const assets = await db.assets.where('articleId').equals(articleId).toArray();
+  const asset = assets.find((entry) => entry.originalUrl === imageUrl);
+  if (!asset) {
+    return;
+  }
+
+  await db.assets.put({
+    ...asset,
+    lastError: reason,
+    updatedAt: new Date().toISOString()
+  });
 }
 
 function toErrorMessage(error: unknown): string {
@@ -764,11 +785,16 @@ export async function removeGroup(groupId: string): Promise<void> {
     return;
   }
 
+  const articles = await db.articles.where('groupId').equals(groupId).toArray();
+  const removedAssets = articles.length > 0
+    ? await db.assets.where('articleId').anyOf(articles.map((article) => article.id)).toArray()
+    : [];
+
   await db.transaction('rw', [db.groups, db.articles, db.readingStates, db.sources, db.assets], async () => {
-    const articles = await db.articles.where('groupId').equals(groupId).toArray();
-    await db.assets.where('articleId').anyOf(articles.map((article) => article.id)).delete();
+    if (articles.length > 0) {
+      await db.assets.where('articleId').anyOf(articles.map((article) => article.id)).delete();
+    }
     await db.articles.bulkDelete(articles.map((article) => article.id));
-    articles.forEach((article) => revokeArticleObjectUrls(article.id));
 
     const readingStates = await db.readingStates.where('groupId').equals(groupId).toArray();
     await db.readingStates.bulkDelete(readingStates.map((state) => state.articleId));
@@ -780,10 +806,11 @@ export async function removeGroup(groupId: string): Promise<void> {
       await db.sources.delete(group.sourceId);
     }
   });
+
+  await deleteUnreferencedImageUrls(removedAssets.map((asset) => asset.originalUrl));
 }
 
 export async function clearAllData(): Promise<void> {
-  revokeAllObjectUrls();
   await db.transaction('rw', [db.sources, db.groups, db.articles, db.readingStates, db.assets], async () => {
     await db.assets.clear();
     await db.readingStates.clear();
@@ -791,4 +818,5 @@ export async function clearAllData(): Promise<void> {
     await db.groups.clear();
     await db.sources.clear();
   });
+  await deleteImageCache();
 }

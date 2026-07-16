@@ -23,16 +23,58 @@ import {
   titleFromUrl
 } from './content-service';
 import { db } from './db';
+import { IMAGE_CACHE_NAME } from './image-cache';
 import type { Asset } from './types';
 
-function readBlobAsText(blob: Blob): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.addEventListener('load', () => resolve(String(reader.result)));
-    reader.addEventListener('error', () => reject(reader.error));
-    reader.readAsText(blob);
-  });
+class MemoryCache {
+  entries = new Map<string, Response>();
+  dropWrites = false;
+
+  private key(input: RequestInfo | URL): string {
+    return input instanceof Request ? input.url : new URL(String(input), location.href).toString();
+  }
+
+  async match(input: RequestInfo | URL): Promise<Response | undefined> {
+    return this.entries.get(this.key(input));
+  }
+
+  async put(input: RequestInfo | URL, response: Response): Promise<void> {
+    if (!this.dropWrites) {
+      this.entries.set(this.key(input), response);
+    }
+  }
+
+  async delete(input: RequestInfo | URL): Promise<boolean> {
+    return this.entries.delete(this.key(input));
+  }
+
+  async keys(): Promise<Request[]> {
+    return Array.from(this.entries.keys(), (url) => new Request(url));
+  }
 }
+
+class MemoryCacheStorage {
+  caches = new Map<string, MemoryCache>();
+
+  async open(name: string): Promise<Cache> {
+    let cache = this.caches.get(name);
+    if (!cache) {
+      cache = new MemoryCache();
+      this.caches.set(name, cache);
+    }
+    return cache as unknown as Cache;
+  }
+
+  async delete(name: string): Promise<boolean> {
+    return this.caches.delete(name);
+  }
+
+  async keys(): Promise<string[]> {
+    return Array.from(this.caches.keys());
+  }
+}
+
+let cacheStorage: MemoryCacheStorage;
 
 describe('calculateGroupOfflineStatus', () => {
   it('returns downloaded when every article is downloaded', () => {
@@ -75,6 +117,19 @@ beforeEach(async () => {
   }
 
   globalThis.File = TestFile as unknown as typeof File;
+  cacheStorage = new MemoryCacheStorage();
+  Object.defineProperty(globalThis, 'caches', {
+    configurable: true,
+    value: cacheStorage as unknown as CacheStorage
+  });
+  Object.defineProperty(navigator, 'serviceWorker', {
+    configurable: true,
+    value: { controller: {} }
+  });
+  Object.defineProperty(navigator, 'onLine', {
+    configurable: true,
+    value: true
+  });
   Object.defineProperties(URL, {
     createObjectURL: {
       configurable: true,
@@ -95,6 +150,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
   await clearAllData();
+  vi.restoreAllMocks();
 });
 
 describe('extractMarkdownImageUrls', () => {
@@ -181,7 +237,7 @@ describe('buildOfflineMarkdown', () => {
 });
 
 describe('hydrateArticleAssets', () => {
-  it('rebuilds a persisted blob with the stored image MIME type', async () => {
+  it('migrates a persisted blob to Cache Storage and renders the original URL', async () => {
     const persistedBlob = new NodeBlob(['cached-image'], { type: 'application/octet-stream' }) as Blob;
     await db.assets.put({
       id: 'asset:cached',
@@ -194,7 +250,6 @@ describe('hydrateArticleAssets', () => {
       createdAt: '2026-05-17T00:00:00.000Z',
       updatedAt: '2026-05-17T00:00:00.000Z'
     });
-
     const article = await hydrateArticleAssets({
       id: 'article:1',
       groupId: 'group:1',
@@ -206,12 +261,13 @@ describe('hydrateArticleAssets', () => {
       updatedAt: '2026-05-17T00:00:00.000Z'
     });
 
-    expect(article.content).toBe('![cached](blob:https://reader.test/cached-image)');
-    expect(URL.createObjectURL).toHaveBeenCalledOnce();
-    const rebuiltBlob = vi.mocked(URL.createObjectURL).mock.calls[0]?.[0] as Blob;
-    expect(rebuiltBlob).not.toBe(persistedBlob);
-    expect(rebuiltBlob.type).toBe('image/png');
-    expect(await readBlobAsText(rebuiltBlob)).toBe('cached-image');
+    expect(article.content).toBe('![cached](https://reader.test/images/cached.bin)');
+    expect(URL.createObjectURL).not.toHaveBeenCalled();
+    const cache = cacheStorage.caches.get(IMAGE_CACHE_NAME)!;
+    const cached = await cache.match('https://reader.test/images/cached.bin');
+    expect(cached?.headers.get('content-type')).toBe('image/png');
+    expect(await cached?.text()).toBe('cached-image');
+    expect((await db.assets.get('asset:cached'))?.blob).toBeUndefined();
   });
 
   it('infers the image MIME type from the original URL when stored types are invalid', async () => {
@@ -238,9 +294,75 @@ describe('hydrateArticleAssets', () => {
       updatedAt: '2026-05-17T00:00:00.000Z'
     });
 
-    expect(article.content).toBe('![cover](blob:https://reader.test/cached-image)');
-    const rebuiltBlob = vi.mocked(URL.createObjectURL).mock.calls[0]?.[0] as Blob;
-    expect(rebuiltBlob.type).toBe('image/webp');
+    expect(article.content).toBe('![cover](https://reader.test/images/cover.webp?version=2)');
+    const cache = cacheStorage.caches.get(IMAGE_CACHE_NAME)!;
+    const cached = await cache.match('https://reader.test/images/cover.webp?version=2');
+    expect(cached?.headers.get('content-type')).toBe('image/webp');
+  });
+
+  it('keeps the only legacy blob when cache verification fails', async () => {
+    const legacyBlob = new NodeBlob(['legacy']) as Blob;
+    await db.assets.put({
+      id: 'asset:legacy',
+      articleId: 'article:3',
+      originalUrl: 'https://reader.test/images/legacy.png',
+      blob: legacyBlob,
+      status: 'downloaded',
+      attemptCount: 1,
+      createdAt: '2026-05-17T00:00:00.000Z',
+      updatedAt: '2026-05-17T00:00:00.000Z'
+    });
+    const cache = await cacheStorage.open(IMAGE_CACHE_NAME) as unknown as MemoryCache;
+    cache.dropWrites = true;
+
+    const article = await hydrateArticleAssets({
+      id: 'article:3',
+      groupId: 'group:1',
+      order: 3,
+      title: 'Legacy',
+      content: '![legacy](mdr-asset://asset:legacy)',
+      downloadStatus: 'downloaded',
+      createdAt: '2026-05-17T00:00:00.000Z',
+      updatedAt: '2026-05-17T00:00:00.000Z'
+    });
+
+    expect(article.content).toBe('![legacy](https://reader.test/images/legacy.png)');
+    const stored = await db.assets.get('asset:legacy');
+    expect(stored?.blob).toBeDefined();
+    expect(stored?.blob?.size).toBe(legacyBlob.size);
+    expect(stored?.status).toBe('pending');
+    expect(stored?.lastError).toContain('verification failed');
+  });
+
+  it('retains a migrated blob until the service worker controls the page', async () => {
+    const serviceWorkerState = { controller: null as object | null };
+    Object.defineProperty(navigator, 'serviceWorker', {
+      configurable: true,
+      value: serviceWorkerState
+    });
+    await db.assets.put({
+      id: 'asset:waiting-sw',
+      articleId: 'article:4',
+      originalUrl: 'https://reader.test/images/waiting.png',
+      blob: new NodeBlob(['waiting']) as Blob,
+      status: 'downloaded',
+      attemptCount: 1,
+      createdAt: '2026-05-17T00:00:00.000Z',
+      updatedAt: '2026-05-17T00:00:00.000Z'
+    });
+    const article = {
+      id: 'article:4', groupId: 'group:1', order: 4, title: 'Waiting',
+      content: '![waiting](mdr-asset://asset:waiting-sw)',
+      downloadStatus: 'downloaded' as const,
+      createdAt: '2026-05-17T00:00:00.000Z', updatedAt: '2026-05-17T00:00:00.000Z'
+    };
+
+    await hydrateArticleAssets(article);
+    expect((await db.assets.get('asset:waiting-sw'))?.blob).toBeDefined();
+
+    serviceWorkerState.controller = {};
+    await hydrateArticleAssets(article);
+    expect((await db.assets.get('asset:waiting-sw'))?.blob).toBeUndefined();
   });
 });
 
@@ -279,6 +401,33 @@ describe('removeGroup', () => {
     expect(await db.groups.toArray()).toHaveLength(0);
     expect(await db.articles.toArray()).toHaveLength(0);
   });
+
+  it('preserves a shared cached URL until its final asset reference is removed', async () => {
+    const firstGroupId = await importLocalFiles([new File(['# One'], 'one.md')]);
+    const secondGroupId = await importLocalFiles([new File(['# Two'], 'two.md')]);
+    const firstArticle = (await loadArticles(firstGroupId))[0]!;
+    const secondArticle = (await loadArticles(secondGroupId))[0]!;
+    const sharedUrl = 'https://reader.test/shared.png';
+    const now = '2026-07-16T00:00:00.000Z';
+    await db.assets.bulkPut([
+      {
+        id: 'asset:shared-1', articleId: firstArticle.id, originalUrl: sharedUrl,
+        status: 'downloaded', attemptCount: 1, createdAt: now, updatedAt: now
+      },
+      {
+        id: 'asset:shared-2', articleId: secondArticle.id, originalUrl: sharedUrl,
+        status: 'downloaded', attemptCount: 1, createdAt: now, updatedAt: now
+      }
+    ]);
+    const cache = await cacheStorage.open(IMAGE_CACHE_NAME) as unknown as MemoryCache;
+    await cache.put(sharedUrl, new Response('shared'));
+
+    await removeGroup(firstGroupId);
+    expect(await cache.match(sharedUrl)).toBeDefined();
+
+    await removeGroup(secondGroupId);
+    expect(await cache.match(sharedUrl)).toBeUndefined();
+  });
 });
 
 describe('clearAllData', () => {
@@ -302,6 +451,8 @@ describe('clearAllData', () => {
       createdAt: '2026-05-17T00:00:00.000Z',
       updatedAt: '2026-05-17T00:00:00.000Z'
     });
+    const imageCache = await cacheStorage.open(IMAGE_CACHE_NAME) as unknown as MemoryCache;
+    await imageCache.put('https://reader.test/image.png', new Response('image'));
 
     expect(await loadGroups()).toHaveLength(1);
     expect(await loadArticles(savedGroupId)).toHaveLength(1);
@@ -315,6 +466,7 @@ describe('clearAllData', () => {
     expect(await db.articles.toArray()).toHaveLength(0);
     expect(await db.readingStates.toArray()).toHaveLength(0);
     expect(await db.assets.toArray()).toHaveLength(0);
+    expect(cacheStorage.caches.has(IMAGE_CACHE_NAME)).toBe(false);
   });
 });
 
@@ -439,6 +591,26 @@ describe('saveUrlArticle', () => {
     expect(sources).toHaveLength(1);
     expect(sources[0]!.type).toBe('url');
     expect(sources[0]!.url).toBe('https://example.com/article.md');
+  });
+
+  it('stores downloaded image bytes in Cache Storage without a new IndexedDB blob', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response('image-bytes', { status: 200, headers: { 'content-type': 'image/png' } })
+    );
+    const groupId = await saveUrlArticle({
+      url: 'https://example.com/article.md',
+      title: 'Cached image',
+      content: '# Cached image\n\n![cover](https://cdn.reader.test/cover.png)'
+    });
+
+    const [asset] = await db.assets.toArray();
+    expect(asset?.status).toBe('downloaded');
+    expect(asset?.blob).toBeUndefined();
+    expect((await loadArticles(groupId))[0]?.content).toContain(`mdr-asset://${asset?.id}`);
+    expect((fetchMock.mock.calls[0]?.[0] as Request).mode).toBe('no-cors');
+    const cache = cacheStorage.caches.get(IMAGE_CACHE_NAME)!;
+    expect(await cache.match('https://cdn.reader.test/cover.png')).toBeDefined();
+    fetchMock.mockRestore();
   });
 
   it('can be removed after saving', async () => {
