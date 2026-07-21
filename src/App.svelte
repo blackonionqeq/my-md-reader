@@ -5,10 +5,13 @@
   import Bookshelf from './components/Bookshelf.svelte';
   import GroupDetail from './components/GroupDetail.svelte';
   import ManifestHelpDialog from './components/ManifestHelpDialog.svelte';
+  import ManifestUpdateDialog from './components/ManifestUpdateDialog.svelte';
   import ReaderPane from './components/ReaderPane.svelte';
   import SettingsPanel from './components/SettingsPanel.svelte';
   import UpdatePrompt from './components/UpdatePrompt.svelte';
   import {
+    applyManifestUpdate,
+    checkManifestUpdate,
     clearAllData,
     downloadGroup,
     type DownloadProgress,
@@ -19,9 +22,10 @@
     loadReadingState,
     migrateLegacyAssetsInBackground,
     openSingleLocalFile,
-    previewManifest,
+    previewManifestImport,
     previewUrlArticle,
     recordArticleImageFailure,
+    recoverInterruptedDownloads,
     removeGroup,
     retryFailedArticles,
     saveManifestSource,
@@ -32,12 +36,13 @@
   import { dropImport } from './lib/drop-import';
   import type { FocusModeController } from './lib/focus-mode';
   import { isServiceWorkerControllingPage } from './lib/image-cache';
+  import { manifestPlanHasChanges } from './lib/manifest-update';
   import { applyTheme, clearLastOpened, loadLastOpened, loadSettings, normalizeFontSize, saveDirectoryScroll, saveLastOpened, saveSettings } from './lib/settings';
   import type {
     Article,
-    Group,
     GroupListItem,
     ManifestPreview,
+    ManifestUpdatePlan,
     OutlineHeading,
     ReaderArticle,
     ReaderSettings,
@@ -52,9 +57,12 @@
   let urlPreview: UrlArticlePreview | null = null;
   let manifestBusy = false;
   let manifestError = '';
+  let manifestUpdatePlan: ManifestUpdatePlan | null = null;
+  let manifestUpdateBusy = false;
+  let manifestUpdateError = '';
 
   let groups: GroupListItem[] = [];
-  let selectedGroup: Group | null = null;
+  let selectedGroup: GroupListItem | null = null;
   let selectedGroupId: string | null = null;
   let articles: Article[] = [];
   let selectedArticle: ReaderArticle | null = null;
@@ -249,12 +257,28 @@
     manifestError = '';
     preview = null;
     urlPreview = null;
+    manifestUpdatePlan = null;
+    manifestUpdateError = '';
 
     const url = manifestUrl.trim();
 
     try {
-      preview = await previewManifest(url);
-    } catch {
+      const candidate = await previewManifestImport(url);
+      if (candidate.kind === 'update') {
+        manifestUpdatePlan = candidate.plan;
+        manifestUpdateError = '';
+      } else {
+        preview = candidate.preview;
+      }
+    } catch (manifestCandidateError) {
+      const candidateMessage = manifestCandidateError instanceof Error
+        ? manifestCandidateError.message
+        : '';
+      if (candidateMessage.includes('non-manifest group already uses id')) {
+        manifestError = candidateMessage;
+        manifestBusy = false;
+        return;
+      }
       try {
         urlPreview = await previewUrlArticle(url);
       } catch (error) {
@@ -366,6 +390,85 @@
         ? { ...group, lastReadArticleId: articleId }
         : group);
       saveLastOpened(selectedGroup.id, articleId);
+    }
+  }
+
+  async function handleCheckManifestUpdate(): Promise<void> {
+    if (!selectedGroupId || manifestUpdateBusy) return;
+    manifestUpdateBusy = true;
+    manifestUpdateError = '';
+    try {
+      const plan = await checkManifestUpdate(selectedGroupId);
+      await refreshGroups();
+      if (manifestPlanHasChanges(plan)) {
+        manifestUpdatePlan = plan;
+      } else {
+        const hasFailedContent = articles.some((article) => article.downloadStatus === 'failed');
+        setMessage(hasFailedContent
+          ? 'Manifest is current, but some local content still needs retry.'
+          : 'This collection is already up to date.');
+      }
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Failed to check for updates.', 'error');
+    } finally {
+      manifestUpdateBusy = false;
+    }
+  }
+
+  async function handleApplyManifestUpdate(): Promise<void> {
+    const plan = manifestUpdatePlan;
+    if (!plan || manifestUpdateBusy) return;
+    manifestUpdateBusy = true;
+    downloading = true;
+    manifestUpdateError = '';
+    const previousSelectedArticleId = selectedGroupId === plan.groupId ? selectedArticleId : null;
+    const previousArticleIds = selectedGroupId === plan.groupId
+      ? articles.map((article) => article.id)
+      : [];
+    try {
+      if (readerMode === 'continuous') await leaveContinuousMode();
+      setMessage('Applying manifest update…');
+      const result = await applyManifestUpdate(plan, (progress) => {
+        setMessage(formatDownloadProgress(progress));
+      });
+      manifestUpdatePlan = null;
+      preview = null;
+      urlPreview = null;
+      manifestUrl = '';
+      await refreshGroups();
+      selectedGroupId = result.groupId;
+      selectedGroup = groups.find((group) => group.id === result.groupId) ?? null;
+      articles = await loadArticles(result.groupId);
+      const survivingIds = new Set(articles.map((article) => article.id));
+      const previousIndex = previousSelectedArticleId
+        ? previousArticleIds.indexOf(previousSelectedArticleId)
+        : -1;
+      const nearestSurvivorId = previousIndex >= 0
+        ? previousArticleIds.slice(previousIndex + 1).find((articleId) => survivingIds.has(articleId))
+          ?? previousArticleIds.slice(0, previousIndex).reverse().find((articleId) => survivingIds.has(articleId))
+        : undefined;
+      const nextArticle = articles.find((article) => article.id === previousSelectedArticleId)
+        ?? articles.find((article) => article.id === nearestSurvivorId)
+        ?? articles.find((article) => article.id === result.selectedArticleId)
+        ?? articles[0];
+      if (nextArticle) {
+        await openArticle(nextArticle.id, { restoreScroll: true });
+      } else {
+        selectedArticle = null;
+        selectedArticleId = null;
+        readingState = null;
+        outline = [];
+        clearLastOpened();
+      }
+      setMessage(result.failedArticleIds.length > 0
+        ? `Update applied with ${result.failedArticleIds.length} article failure(s). Retry when online.`
+        : 'Manifest update applied.',
+        result.failedArticleIds.length > 0 ? 'error' : 'info');
+    } catch (error) {
+      manifestUpdateError = error instanceof Error ? error.message : 'Failed to apply manifest update.';
+    } finally {
+      downloading = false;
+      manifestUpdateBusy = false;
     }
   }
 
@@ -526,6 +629,8 @@
     readingState = null;
     preview = null;
     urlPreview = null;
+    manifestUpdatePlan = null;
+    manifestUpdateError = '';
     outline = [];
     setMessage('Local cache cleared.');
   }
@@ -582,6 +687,7 @@
 
   onMount(async () => {
     applyTheme(settings.theme);
+    await recoverInterruptedDownloads();
     await refreshGroups();
 
     console.info('[app] release diagnostics', {
@@ -810,6 +916,8 @@
           onSelectArticle={handleSelectArticle}
           onDownloadAll={handleDownloadAll}
           onRetryFailed={handleRetryFailed}
+          busy={manifestUpdateBusy || downloading}
+          onCheckUpdate={handleCheckManifestUpdate}
           continuousReading={readerMode === 'continuous'}
           continuousReadingAvailable={Boolean(selectedGroup && selectedGroup.offlineStatus === 'downloaded' && articles.length >= 2)}
           continuousReadingDisabledReason={articles.length < 2 ? 'Continuous reading needs at least two articles.' : 'Download every article first.'}
@@ -860,6 +968,19 @@
   {/if}
 
   <ManifestHelpDialog open={showManifestHelp} onClose={() => (showManifestHelp = false)} />
+  <ManifestUpdateDialog
+    open={manifestUpdatePlan !== null}
+    plan={manifestUpdatePlan}
+    busy={manifestUpdateBusy}
+    error={manifestUpdateError}
+    onCancel={() => {
+      if (!manifestUpdateBusy) {
+        manifestUpdatePlan = null;
+        manifestUpdateError = '';
+      }
+    }}
+    onApply={handleApplyManifestUpdate}
+  />
 </div>
 
 <UpdatePrompt

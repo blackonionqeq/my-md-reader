@@ -23,11 +23,11 @@ Primary user flows:
 `App.svelte` orchestrates all top-level state and delegates to these layers:
 
 - **Service layer** (`src/lib/content-service.ts`): all persistence, download, retry, and import logic. Prefer changing this file for behavior changes before pushing logic into components.
-- **Database** (`src/lib/db.ts`): Dexie schema (currently v2) with tables: `sources`, `groups`, `articles`, `readingStates`, `assets`.
+- **Database** (`src/lib/db.ts`): Dexie schema (currently v3) with tables: `sources`, `groups`, `articles`, `readingStates`, `assets`.
 - **Image cache** (`src/lib/image-cache.ts`, `src/lib/image-cache-contract.ts`): Cache Storage reads/writes, image request and response validation, legacy Blob migration, cache cleanup, and the shared versioned cache name used by Workbox.
 - **Rendering** (`src/lib/markdown.ts`): lazy-loaded pipeline — `markdown-it` + `highlight.js` (selective language imports) + `dompurify` + `mermaid`. All heavy dependencies stay out of the initial bundle.
 - **Components**: `ReaderPane` is the ordinary single-article reader. `ContinuousReaderPane` and `ContinuousArticle` form the lazy-loaded continuous reader. The remaining UI lives in `Bookshelf`, `GroupDetail`, `AddSourceForm`, `SettingsPanel`, `UpdatePrompt`, and `ManifestHelpDialog`.
-- **Utilities**: `continuous-reader.ts` (DOM-independent virtual-window, active-slot, height-estimation, and progress geometry), `focus-mode.ts` (fullscreen focus mode with F11 shortcut), `outline.ts` (heading extraction and optional per-article ID prefixes for the ToC sidebar), `reader-scroll.ts` (scroll position resolution on article open), `settings.ts` (theme/font/last-opened persistence via localStorage), `format.ts` (relative time and status labels), `id.ts` (prefixed ID generation), `drop-import.ts` (drag-and-drop file handling).
+- **Utilities**: `manifest-update.ts` (canonical SHA-256 fingerprints and pure manifest diff plans), `continuous-reader.ts` (DOM-independent virtual-window, active-slot, height-estimation, and progress geometry), `focus-mode.ts` (fullscreen focus mode with F11 shortcut), `outline.ts` (heading extraction and optional per-article ID prefixes for the ToC sidebar), `reader-scroll.ts` (scroll position resolution on article open), `settings.ts` (theme/font/last-opened persistence via localStorage), `format.ts` (relative time and status labels), `id.ts` (prefixed ID generation), `drop-import.ts` (drag-and-drop file handling).
 - **Image viewer**: `luma-peek` is lazy-loaded on first image click by both `ReaderPane` and the continuous reader.
 
 ### Offline image caching
@@ -36,7 +36,7 @@ When articles are downloaded, `content-service.ts` extracts image URLs from Mark
 
 ### Content flows
 
-**Manifest flow**: `AddSourceForm` → `previewManifest` → validate/normalize → save source + group + articles to Dexie → download articles + assets → render in `ReaderPane`.
+**Manifest flow**: `AddSourceForm` → `previewManifestImport` → validate/normalize → either save a new source + group + articles or preview an update/source relocation → confirm `ManifestUpdatePlan` → apply additions, metadata changes, permanent removals, and hash-verified replacement downloads → render in `ReaderPane`. Existing source checks start from `GroupDetail` and reuse the same diff/apply path.
 
 **URL flow**: paste a raw `.md` URL → `previewUrlArticle` fetches and extracts title → `saveUrlArticle` persists as a single-article group with downloaded assets.
 
@@ -81,7 +81,7 @@ When articles are downloaded, `content-service.ts` extracts image URLs from Mark
 - Keep continuous-reader implementation and feature-only styles behind the dynamic import in `App.svelte`; do not statically import its pane, article component, or geometry helper into the startup graph.
 - Preserve the continuous reader's three-body render window and article-scoped progress semantics when changing its virtualization behavior.
 - Offline images render through normal HTTP(S) URLs backed by Cache Storage; do not reintroduce Blob/object-URL delivery for the normal read path. DOMPurify still permits `blob:` URIs for compatibility, but offline image delivery must not depend on them.
-- The `assets` table migration (v1→v2) adds `nextRetryAt` and `updatedAt` indexes; new schema changes need a v3 migration in `db.ts`.
+- The `assets` table migration (v1→v2) adds retry indexes; v3 adds manifest update metadata and interrupted-download recovery. New schema changes need a v4 migration in `db.ts`.
 - Avoid reintroducing Playwright unless the project explicitly needs browser automation.
 - When generating commit messages, use gitmoji.
 

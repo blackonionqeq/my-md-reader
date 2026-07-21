@@ -11,12 +11,22 @@ import {
   reconcileImageCache
 } from './image-cache';
 import { normalizeManifestPreview, validateManifest } from './manifest';
+import {
+  computeAppliedFingerprint,
+  computePreviewFingerprint,
+  createManifestUpdatePlan,
+  manifestPlanHasChanges,
+  sha256Bytes
+} from './manifest-update';
 import type {
   Article,
   Asset,
   AssetStatus,
   GroupListItem,
+  ManifestApplyResult,
+  ManifestImportPreview,
   ManifestPreview,
+  ManifestUpdatePlan,
   ReadingState,
   TemporaryArticle,
   UrlArticlePreview
@@ -348,6 +358,88 @@ async function downloadArticleAssets(
   return buildOfflineMarkdown(content, article.url, finalAssets);
 }
 
+async function fetchArticleMarkdown(article: Article): Promise<string> {
+  if (!article.url) {
+    throw new Error('Article has no download URL.');
+  }
+
+  const response = await fetch(article.url);
+  if (!response.ok) {
+    throw new Error(`${response.status} ${response.statusText}`);
+  }
+
+  const bytes = await response.arrayBuffer();
+  if (article.contentHash) {
+    const actualHash = await sha256Bytes(bytes);
+    if (actualHash !== article.contentHash) {
+      throw new Error(`Content hash mismatch: expected ${article.contentHash}, received ${actualHash}.`);
+    }
+  }
+
+  return new TextDecoder().decode(bytes);
+}
+
+async function downloadReplacementArticle(
+  articleId: string,
+  onAssetProgress?: (done: number, total: number) => void
+): Promise<boolean> {
+  const article = await db.articles.get(articleId);
+  if (!article) {
+    return false;
+  }
+
+  const stagingArticleId = createId('update-stage');
+  let stagedAssets: Asset[] = [];
+
+  try {
+    const content = await fetchArticleMarkdown(article);
+    const offlineContent = await downloadArticleAssets(
+      { ...article, id: stagingArticleId },
+      content,
+      onAssetProgress
+    );
+    stagedAssets = await db.assets.where('articleId').equals(stagingArticleId).toArray();
+    const failedAsset = stagedAssets.find((asset) => asset.status !== 'downloaded');
+    if (failedAsset) {
+      throw new Error(failedAsset.lastError ?? `Failed to cache image ${failedAsset.originalUrl}.`);
+    }
+
+    const previousAssets = await db.assets.where('articleId').equals(articleId).toArray();
+    const now = new Date().toISOString();
+    await db.transaction('rw', db.articles, db.assets, async () => {
+      if (previousAssets.length > 0) {
+        await db.assets.bulkDelete(previousAssets.map((asset) => asset.id));
+      }
+      if (stagedAssets.length > 0) {
+        await db.assets.bulkPut(stagedAssets.map((asset) => ({ ...asset, articleId, updatedAt: now })));
+      }
+      await db.articles.update(articleId, {
+        content: offlineContent,
+        downloadedContentHash: article.contentHash,
+        downloadStatus: 'downloaded',
+        errorMessage: undefined,
+        updatedAt: now
+      });
+    });
+    await deleteUnreferencedImageUrls(previousAssets.map((asset) => asset.originalUrl));
+    return true;
+  } catch (error) {
+    if (stagedAssets.length === 0) {
+      stagedAssets = await db.assets.where('articleId').equals(stagingArticleId).toArray();
+    }
+    if (stagedAssets.length > 0) {
+      await db.assets.bulkDelete(stagedAssets.map((asset) => asset.id));
+      await deleteUnreferencedImageUrls(stagedAssets.map((asset) => asset.originalUrl));
+    }
+    await db.articles.update(articleId, {
+      downloadStatus: 'failed',
+      errorMessage: toErrorMessage(error),
+      updatedAt: new Date().toISOString()
+    });
+    return false;
+  }
+}
+
 export async function hydrateArticleAssets(article: Article): Promise<Article> {
   if (!article.content || !article.content.includes(ASSET_PLACEHOLDER_PREFIX)) {
     return article;
@@ -532,49 +624,255 @@ export async function previewManifest(manifestUrl: string): Promise<ManifestPrev
   return normalizeManifestPreview(manifestUrl, manifest);
 }
 
-export async function saveManifestSource(preview: ManifestPreview): Promise<void> {
-  const existingArticles = await db.articles.where('groupId').equals(preview.group.id).toArray();
-  const articleMap = new Map(existingArticles.map((article) => [article.id, article]));
-  const now = new Date().toISOString();
+export async function previewManifestImport(manifestUrl: string): Promise<ManifestImportPreview> {
+  const preview = await previewManifest(manifestUrl);
+  const existingGroup = await db.groups.get(preview.group.id);
+  if (!existingGroup) {
+    return { kind: 'new', preview };
+  }
 
-  const articles = preview.articles.map((article) => {
-    const existing = articleMap.get(article.id);
-    return {
-      ...article,
-      content: existing?.content,
-      downloadStatus: existing?.downloadStatus ?? article.downloadStatus,
-      errorMessage: existing?.errorMessage,
-      createdAt: existing?.createdAt ?? article.createdAt,
-      updatedAt: now
-    };
+  const source = await db.sources.get(existingGroup.sourceId);
+  if (!source || source.type !== 'manifest') {
+    throw new Error(`A non-manifest group already uses id "${preview.group.id}".`);
+  }
+
+  const articles = await loadArticles(existingGroup.id);
+  const plan = await createManifestUpdatePlan({ source, group: existingGroup, articles, target: preview });
+  return { kind: 'update', preview, plan };
+}
+
+export async function checkManifestUpdate(groupId: string): Promise<ManifestUpdatePlan> {
+  const group = await db.groups.get(groupId);
+  if (!group) {
+    throw new Error('Manifest group no longer exists.');
+  }
+  const source = await db.sources.get(group.sourceId);
+  if (!source || source.type !== 'manifest' || !source.url) {
+    throw new Error('This group is not backed by an updateable manifest.');
+  }
+
+  const target = await previewManifest(source.url);
+  const articles = await loadArticles(groupId);
+  const plan = await createManifestUpdatePlan({ source, group, articles, target });
+  const now = new Date().toISOString();
+  const safeFingerprintBackfill = !source.manifestFingerprint && !manifestPlanHasChanges(plan)
+    ? plan.targetFingerprint
+    : source.manifestFingerprint;
+  await db.sources.update(source.id, {
+    lastCheckedAt: now,
+    manifestFingerprint: safeFingerprintBackfill,
+    updatedAt: now
   });
+  return plan;
+}
+
+export async function saveManifestSource(preview: ManifestPreview): Promise<void> {
+  if (await db.groups.get(preview.group.id)) {
+    throw new Error(`A group with id "${preview.group.id}" already exists. Check it for updates instead.`);
+  }
+
+  const now = new Date().toISOString();
+  const sourceId = createId('manifest-source');
+  const fingerprint = await computePreviewFingerprint(preview);
+  const articles = preview.articles.map((article) => ({ ...article, updatedAt: now }));
 
   await db.transaction('rw', db.sources, db.groups, db.articles, async () => {
-    await db.sources.put({
+    await db.sources.add({
       ...preview.source,
-      createdAt: preview.source.createdAt,
+      id: sourceId,
+      manifestFingerprint: fingerprint,
+      createdAt: now,
       updatedAt: now
     });
 
-    await db.groups.put({
+    await db.groups.add({
       ...preview.group,
+      sourceId,
       offlineStatus: calculateGroupOfflineStatus(articles),
-      createdAt: preview.group.createdAt,
+      createdAt: now,
       updatedAt: now
     });
 
-    await db.articles.bulkPut(articles);
+    await db.articles.bulkAdd(articles);
   });
 }
 
+function resolveLastReadAfterRemoval(
+  lastReadArticleId: string | undefined,
+  previousArticles: Article[],
+  targetArticles: Article[]
+): string | undefined {
+  if (!lastReadArticleId) {
+    return undefined;
+  }
+  const targetIds = new Set(targetArticles.map((article) => article.id));
+  if (targetIds.has(lastReadArticleId)) {
+    return lastReadArticleId;
+  }
+
+  const orderedPrevious = [...previousArticles].sort((left, right) => left.order - right.order);
+  const removedIndex = orderedPrevious.findIndex((article) => article.id === lastReadArticleId);
+  if (removedIndex >= 0) {
+    for (let index = removedIndex + 1; index < orderedPrevious.length; index++) {
+      const candidate = orderedPrevious[index];
+      if (candidate && targetIds.has(candidate.id)) {
+        return candidate.id;
+      }
+    }
+    for (let index = removedIndex - 1; index >= 0; index--) {
+      const candidate = orderedPrevious[index];
+      if (candidate && targetIds.has(candidate.id)) {
+        return candidate.id;
+      }
+    }
+  }
+
+  return [...targetArticles].sort((left, right) => left.order - right.order)[0]?.id;
+}
+
+export async function applyManifestUpdate(
+  plan: ManifestUpdatePlan,
+  onProgress?: (progress: DownloadProgress) => void
+): Promise<ManifestApplyResult> {
+  const group = await db.groups.get(plan.groupId);
+  const source = group ? await db.sources.get(group.sourceId) : undefined;
+  if (!group || !source || source.id !== plan.sourceId || source.type !== 'manifest' || !source.url) {
+    throw new Error('The manifest source changed. Check for updates again.');
+  }
+  if (source.url !== plan.oldManifestUrl) {
+    throw new Error('The manifest URL changed. Check for updates again.');
+  }
+
+  const existingArticles = await loadArticles(group.id);
+  const derivedFingerprint = await computeAppliedFingerprint(
+    plan.target.schemaVersion,
+    group,
+    existingArticles
+  );
+  const currentFingerprint = source.manifestFingerprint ?? derivedFingerprint;
+  if (currentFingerprint !== plan.baseFingerprint) {
+    throw new Error('The collection changed after this preview. Check for updates again.');
+  }
+
+  const entryByArticleId = new Map(plan.entries.map((entry) => [entry.articleId, entry]));
+  const existingById = new Map(existingArticles.map((article) => [article.id, article]));
+  const wasFullyDownloaded = group.offlineStatus === 'downloaded'
+    && existingArticles.every((article) => article.downloadStatus === 'downloaded');
+  const now = new Date().toISOString();
+  const downloadArticleIds: string[] = [];
+  const nextArticles = plan.target.articles.map((target): Article => {
+    const existing = existingById.get(target.id);
+    const entry = entryByArticleId.get(target.id);
+    if (!existing) {
+      if (wasFullyDownloaded) {
+        downloadArticleIds.push(target.id);
+      }
+      return {
+        ...target,
+        downloadStatus: wasFullyDownloaded ? 'downloading' : 'not_downloaded',
+        createdAt: now,
+        updatedAt: now
+      };
+    }
+
+    const shouldDownload = entry?.kind === 'contentChanged'
+      && (existing.downloadStatus === 'downloaded' || Boolean(existing.content));
+    if (shouldDownload) {
+      downloadArticleIds.push(target.id);
+    }
+    return {
+      ...target,
+      content: existing.content,
+      downloadedContentHash: existing.downloadedContentHash,
+      downloadStatus: shouldDownload ? 'downloading' : existing.downloadStatus,
+      errorMessage: shouldDownload ? undefined : existing.errorMessage,
+      createdAt: existing.createdAt,
+      updatedAt: now
+    };
+  });
+  const removedEntries = plan.entries.filter((entry) => entry.kind === 'removed');
+  const removedArticleIds = removedEntries.map((entry) => entry.articleId);
+  const removedAssets = removedArticleIds.length > 0
+    ? await db.assets.where('articleId').anyOf(removedArticleIds).toArray()
+    : [];
+  const selectedArticleId = resolveLastReadAfterRemoval(
+    group.lastReadArticleId,
+    existingArticles,
+    nextArticles
+  );
+
+  await db.transaction(
+    'rw',
+    [db.sources, db.groups, db.articles, db.readingStates, db.assets],
+    async () => {
+      if (removedArticleIds.length > 0) {
+        await db.assets.where('articleId').anyOf(removedArticleIds).delete();
+        await db.readingStates.where('articleId').anyOf(removedArticleIds).delete();
+        await db.articles.bulkDelete(removedArticleIds);
+      }
+      await db.articles.bulkPut(nextArticles);
+      await db.sources.update(source.id, {
+        url: plan.newManifestUrl,
+        manifestFingerprint: plan.targetFingerprint,
+        lastCheckedAt: now,
+        updatedAt: now
+      });
+      await db.groups.put({
+        ...plan.target.group,
+        sourceId: source.id,
+        offlineStatus: calculateGroupOfflineStatus(nextArticles),
+        lastReadArticleId: selectedArticleId,
+        createdAt: group.createdAt,
+        updatedAt: now
+      });
+    }
+  );
+
+  await deleteUnreferencedImageUrls(removedAssets.map((asset) => asset.originalUrl));
+
+  const downloadedArticleIds: string[] = [];
+  const failedArticleIds: string[] = [];
+  for (let index = 0; index < downloadArticleIds.length; index++) {
+    const articleId = downloadArticleIds[index]!;
+    onProgress?.({ articleIndex: index + 1, articleTotal: downloadArticleIds.length });
+    const succeeded = await downloadReplacementArticle(articleId, (assetIndex, assetTotal) => {
+      onProgress?.({
+        articleIndex: index + 1,
+        articleTotal: downloadArticleIds.length,
+        assetIndex,
+        assetTotal
+      });
+    });
+    (succeeded ? downloadedArticleIds : failedArticleIds).push(articleId);
+  }
+
+  const refreshedArticles = await loadArticles(group.id);
+  await db.groups.update(group.id, {
+    offlineStatus: calculateGroupOfflineStatus(refreshedArticles),
+    updatedAt: new Date().toISOString()
+  });
+
+  return {
+    groupId: group.id,
+    downloadedArticleIds,
+    failedArticleIds,
+    removedArticleIds,
+    selectedArticleId
+  };
+}
+
 export function calculateGroupOfflineStatus(
-  articles: Pick<Article, 'downloadStatus'>[]
+  articles: Array<Pick<Article, 'downloadStatus'> & Partial<Pick<Article, 'content' | 'contentHash' | 'downloadedContentHash'>>>
 ): 'not_downloaded' | 'partial' | 'downloaded' {
-  if (articles.every((article) => article.downloadStatus === 'downloaded')) {
+  const isCurrentDownload = (article: typeof articles[number]) =>
+    article.downloadStatus === 'downloaded'
+    && (!article.contentHash || article.downloadedContentHash === article.contentHash);
+
+  if (articles.every(isCurrentDownload)) {
     return 'downloaded';
   }
 
-  if (articles.some((article) => article.downloadStatus === 'downloaded')) {
+  if (articles.some((article) => article.downloadStatus === 'downloaded' || Boolean(article.content))) {
     return 'partial';
   }
 
@@ -583,11 +881,13 @@ export function calculateGroupOfflineStatus(
 
 export async function loadGroups(): Promise<GroupListItem[]> {
   const groups = await db.groups.orderBy('updatedAt').reverse().toArray();
+  const sources = await db.sources.toArray();
   const readingStates = await db.readingStates.toArray();
   const articles = await db.articles.toArray();
 
   const readingStateMap = new Map(readingStates.map((state) => [state.articleId, state]));
   const articleMap = new Map(articles.map((article) => [article.id, article]));
+  const sourceMap = new Map(sources.map((source) => [source.id, source]));
 
   return groups.map((group) => {
     const lastReadState = group.lastReadArticleId
@@ -596,11 +896,15 @@ export async function loadGroups(): Promise<GroupListItem[]> {
     const lastReadArticle = group.lastReadArticleId
       ? articleMap.get(group.lastReadArticleId)
       : undefined;
+    const source = sourceMap.get(group.sourceId);
 
     return {
       ...group,
       lastReadAt: lastReadState?.lastReadAt,
-      lastReadTitle: lastReadArticle?.title
+      lastReadTitle: lastReadArticle?.title,
+      sourceType: source?.type,
+      sourceUrl: source?.url,
+      sourceLastCheckedAt: source?.lastCheckedAt
     };
   });
 }
@@ -679,30 +983,9 @@ export async function downloadGroup(
       errorMessage: undefined,
       updatedAt: new Date().toISOString()
     });
-
-    try {
-      const response = await fetch(article.url);
-      if (!response.ok) {
-        throw new Error(`${response.status} ${response.statusText}`);
-      }
-
-      const content = await response.text();
-      const offlineContent = await downloadArticleAssets(article, content, (assetIndex, assetTotal) => {
-        onProgress?.({ articleIndex: i + 1, articleTotal, assetIndex, assetTotal });
-      });
-      await db.articles.update(article.id, {
-        content: offlineContent,
-        downloadStatus: 'downloaded',
-        errorMessage: undefined,
-        updatedAt: new Date().toISOString()
-      });
-    } catch (error) {
-      await db.articles.update(article.id, {
-        downloadStatus: 'failed',
-        errorMessage: toErrorMessage(error),
-        updatedAt: new Date().toISOString()
-      });
-    }
+    await downloadReplacementArticle(article.id, (assetIndex, assetTotal) => {
+      onProgress?.({ articleIndex: i + 1, articleTotal, assetIndex, assetTotal });
+    });
   }
 
   const refreshedArticles = await loadArticles(groupId);
@@ -808,6 +1091,30 @@ export async function removeGroup(groupId: string): Promise<void> {
   });
 
   await deleteUnreferencedImageUrls(removedAssets.map((asset) => asset.originalUrl));
+}
+
+export async function recoverInterruptedDownloads(): Promise<number> {
+  const interrupted = await db.articles.where('downloadStatus').equals('downloading').toArray();
+  if (interrupted.length === 0) {
+    return 0;
+  }
+
+  const now = new Date().toISOString();
+  const groupIds = new Set(interrupted.map((article) => article.groupId));
+  await db.articles.bulkPut(interrupted.map((article) => ({
+    ...article,
+    downloadStatus: 'failed' as const,
+    errorMessage: 'Download was interrupted. Retry to continue.',
+    updatedAt: now
+  })));
+  for (const groupId of groupIds) {
+    const articles = await loadArticles(groupId);
+    await db.groups.update(groupId, {
+      offlineStatus: calculateGroupOfflineStatus(articles),
+      updatedAt: now
+    });
+  }
+  return interrupted.length;
 }
 
 export async function clearAllData(): Promise<void> {

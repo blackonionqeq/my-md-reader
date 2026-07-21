@@ -24,6 +24,15 @@ function readOptionalString(value: unknown, field: string): string | undefined {
   return value.trim();
 }
 
+function readContentHash(value: unknown, field: string): string | undefined {
+  const hash = readOptionalString(value, field)?.toLowerCase();
+  if (hash !== undefined && !/^sha256:[0-9a-f]{64}$/.test(hash)) {
+    throw new Error(`Manifest field "${field}" must be a sha256: value with 64 hexadecimal characters.`);
+  }
+
+  return hash;
+}
+
 export function validateManifest(input: unknown): ManifestFile {
   if (!isRecord(input)) {
     throw new Error('Manifest must be a JSON object.');
@@ -43,6 +52,7 @@ export function validateManifest(input: unknown): ManifestFile {
     throw new Error('Manifest field "articles" must be a non-empty array.');
   }
 
+  const articleIds = new Set<string>();
   const articles = input.articles.map((entry, index) => {
     if (!isRecord(entry)) {
       throw new Error(`Manifest article at index ${index} must be an object.`);
@@ -51,7 +61,13 @@ export function validateManifest(input: unknown): ManifestFile {
     const id = readRequiredString(entry.id, `articles[${index}].id`);
     const title = readRequiredString(entry.title, `articles[${index}].title`);
     const url = readRequiredString(entry.url, `articles[${index}].url`);
+    const contentHash = readContentHash(entry.contentHash, `articles[${index}].contentHash`);
     const order = entry.order;
+
+    if (articleIds.has(id)) {
+      throw new Error(`Manifest article id "${id}" must be unique.`);
+    }
+    articleIds.add(id);
 
     if (order !== undefined && (typeof order !== 'number' || Number.isNaN(order))) {
       throw new Error(`Manifest article field "articles[${index}].order" must be a number when present.`);
@@ -61,7 +77,8 @@ export function validateManifest(input: unknown): ManifestFile {
       id,
       title,
       url,
-      order
+      order,
+      contentHash
     };
   });
 
@@ -107,12 +124,14 @@ export function normalizeManifestPreview(manifestUrl: string, manifest: Manifest
     order: entry.order ?? index + 1,
     title: entry.title,
     url: resolveManifestArticleUrl(manifestUrl, entry.url),
+    contentHash: entry.contentHash,
     downloadStatus: 'not_downloaded',
     createdAt: now,
     updatedAt: now
   }));
 
   return {
+    schemaVersion: manifest.schemaVersion,
     manifestUrl,
     source,
     group,

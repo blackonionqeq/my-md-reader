@@ -4,7 +4,9 @@ import path from 'node:path';
 import 'fake-indexeddb/auto';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  applyManifestUpdate,
   buildOfflineMarkdown,
+  checkManifestUpdate,
   clearAllData,
   calculateGroupOfflineStatus,
   computeNextRetryAt,
@@ -16,15 +18,20 @@ import {
   loadGroups,
   openSingleLocalFile,
   previewUrlArticle,
+  previewManifestImport,
+  recoverInterruptedDownloads,
   removeGroup,
   rewriteMarkdownImageUrls,
   saveTemporaryArticle,
+  saveManifestSource,
   saveUrlArticle,
   titleFromUrl
 } from './content-service';
 import { db } from './db';
 import { IMAGE_CACHE_NAME } from './image-cache';
-import type { Asset } from './types';
+import { normalizeManifestPreview } from './manifest';
+import { sha256Bytes } from './manifest-update';
+import type { Asset, ManifestFile } from './types';
 
 class MemoryCache {
   entries = new Map<string, Response>();
@@ -96,6 +103,15 @@ describe('calculateGroupOfflineStatus', () => {
       { downloadStatus: 'failed' },
       { downloadStatus: 'not_downloaded' }
     ])).toBe('not_downloaded');
+  });
+
+  it('returns partial when stale content remains readable after an update failure', () => {
+    expect(calculateGroupOfflineStatus([{
+      downloadStatus: 'failed',
+      content: '# Cached old version',
+      contentHash: `sha256:${'b'.repeat(64)}`,
+      downloadedContentHash: `sha256:${'a'.repeat(64)}`
+    }])).toBe('partial');
   });
 });
 
@@ -627,5 +643,231 @@ describe('saveUrlArticle', () => {
     expect(await loadGroups()).toHaveLength(0);
     expect(await db.articles.toArray()).toHaveLength(0);
     expect(await db.sources.toArray()).toHaveLength(0);
+  });
+});
+
+describe('manifest incremental updates', () => {
+  async function contentHash(content: string): Promise<string> {
+    return sha256Bytes(new TextEncoder().encode(content));
+  }
+
+  function manifest(version: string, articles: ManifestFile['articles']): ManifestFile {
+    return {
+      schemaVersion: 1,
+      id: 'course',
+      title: 'Course',
+      version,
+      articles
+    };
+  }
+
+  async function seedDownloadedManifest(input: {
+    version: string;
+    articles: Array<{ id: string; title: string; url: string; content: string; hash: string }>;
+  }): Promise<void> {
+    const preview = normalizeManifestPreview(
+      'https://reader.test/manifest.json',
+      manifest(input.version, input.articles.map((article, index) => ({
+        id: article.id,
+        title: article.title,
+        url: article.url,
+        order: index + 1,
+        contentHash: article.hash
+      })))
+    );
+    await saveManifestSource(preview);
+    for (const article of input.articles) {
+      await db.articles.update(`course:${article.id}`, {
+        content: article.content,
+        downloadedContentHash: article.hash,
+        downloadStatus: 'downloaded'
+      });
+    }
+    await db.groups.update('course', { offlineStatus: 'downloaded' });
+  }
+
+  it('checks a changed manifest without applying it', async () => {
+    const oldHash = await contentHash('# Old');
+    const newHash = await contentHash('# New');
+    await seedDownloadedManifest({
+      version: '1',
+      articles: [{ id: 'a1', title: 'One', url: 'a1.md', content: '# Old', hash: oldHash }]
+    });
+    const sourceBefore = (await db.sources.toArray())[0]!;
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(manifest('2', [
+      { id: 'a1', title: 'One', url: 'a1.md', contentHash: newHash }
+    ])), { status: 200, headers: { 'content-type': 'application/json' } })));
+
+    const plan = await checkManifestUpdate('course');
+
+    expect(plan.entries[0]?.kind).toBe('contentChanged');
+    expect((await db.articles.get('course:a1'))?.contentHash).toBe(oldHash);
+    const sourceAfter = (await db.sources.toArray())[0]!;
+    expect(sourceAfter.manifestFingerprint).toBe(sourceBefore.manifestFingerprint);
+    expect(sourceAfter.lastCheckedAt).toBeTruthy();
+  });
+
+  it('backfills a missing fingerprint only when the migrated manifest is unchanged', async () => {
+    const hash = await contentHash('# One');
+    await seedDownloadedManifest({
+      version: '1',
+      articles: [{ id: 'a1', title: 'One', url: 'a1.md', content: '# One', hash }]
+    });
+    const source = (await db.sources.toArray())[0]!;
+    await db.sources.update(source.id, { manifestFingerprint: undefined });
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(manifest('1', [
+      { id: 'a1', title: 'One', url: 'a1.md', contentHash: hash }
+    ])), { status: 200 })));
+
+    const plan = await checkManifestUpdate('course');
+
+    expect(plan.entries[0]?.kind).toBe('unchanged');
+    expect((await db.sources.get(source.id))?.manifestFingerprint).toBe(plan.targetFingerprint);
+  });
+
+  it('applies additions, replacements, removals, and reading-state cleanup', async () => {
+    const oldHash = await contentHash('# Old');
+    const removedHash = await contentHash('# Removed');
+    const newHash = await contentHash('# New');
+    const addedHash = await contentHash('# Added');
+    await seedDownloadedManifest({
+      version: '1',
+      articles: [
+        { id: 'a1', title: 'One', url: 'a1.md', content: '# Old', hash: oldHash },
+        { id: 'removed', title: 'Removed', url: 'removed.md', content: '# Removed', hash: removedHash }
+      ]
+    });
+    await db.groups.update('course', { lastReadArticleId: 'course:removed' });
+    await db.readingStates.put({
+      articleId: 'course:removed',
+      groupId: 'course',
+      scrollPosition: 20,
+      progressRatio: 0.4,
+      isFavorite: true,
+      lastReadAt: '2026-07-21T00:00:00.000Z'
+    });
+    await db.assets.put({
+      id: 'asset:removed',
+      articleId: 'course:removed',
+      originalUrl: 'https://reader.test/removed.png',
+      status: 'downloaded',
+      attemptCount: 1,
+      createdAt: '2026-07-21T00:00:00.000Z',
+      updatedAt: '2026-07-21T00:00:00.000Z'
+    });
+    const cache = await cacheStorage.open(IMAGE_CACHE_NAME) as unknown as MemoryCache;
+    await cache.put('https://reader.test/removed.png', new Response('image'));
+
+    const nextManifest = manifest('2', [
+      { id: 'a1', title: 'One', url: 'a1.md', order: 1, contentHash: newHash },
+      { id: 'added', title: 'Added', url: 'added.md', order: 2, contentHash: addedHash }
+    ]);
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith('manifest.json')) {
+        return new Response(JSON.stringify(nextManifest), { status: 200 });
+      }
+      if (url.endsWith('a1.md')) return new Response('# New', { status: 200 });
+      if (url.endsWith('added.md')) return new Response('# Added', { status: 200 });
+      return new Response('missing', { status: 404 });
+    }));
+
+    const candidate = await previewManifestImport('https://reader.test/manifest.json');
+    expect(candidate.kind).toBe('update');
+    if (candidate.kind !== 'update') throw new Error('Expected update candidate.');
+    const result = await applyManifestUpdate(candidate.plan);
+
+    expect(result.downloadedArticleIds).toEqual(['course:a1', 'course:added']);
+    expect(result.removedArticleIds).toEqual(['course:removed']);
+    expect(result.selectedArticleId).toBe('course:a1');
+    expect(await db.articles.get('course:removed')).toBeUndefined();
+    expect(await db.readingStates.get('course:removed')).toBeUndefined();
+    expect(await db.assets.get('asset:removed')).toBeUndefined();
+    expect(await cache.match('https://reader.test/removed.png')).toBeUndefined();
+    expect(await db.articles.get('course:a1')).toMatchObject({
+      content: '# New',
+      contentHash: newHash,
+      downloadedContentHash: newHash,
+      downloadStatus: 'downloaded'
+    });
+    expect(await db.articles.get('course:added')).toMatchObject({
+      content: '# Added',
+      downloadedContentHash: addedHash,
+      downloadStatus: 'downloaded'
+    });
+  });
+
+  it('retains old content when replacement hash verification fails', async () => {
+    const oldHash = await contentHash('# Old');
+    const expectedNewHash = await contentHash('# Expected');
+    await seedDownloadedManifest({
+      version: '1',
+      articles: [{ id: 'a1', title: 'One', url: 'a1.md', content: '# Old', hash: oldHash }]
+    });
+    const nextManifest = manifest('2', [
+      { id: 'a1', title: 'One', url: 'a1.md', contentHash: expectedNewHash }
+    ]);
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      return String(input).endsWith('manifest.json')
+        ? new Response(JSON.stringify(nextManifest), { status: 200 })
+        : new Response('# Wrong bytes', { status: 200 });
+    }));
+
+    const candidate = await previewManifestImport('https://reader.test/manifest.json');
+    if (candidate.kind !== 'update') throw new Error('Expected update candidate.');
+    const result = await applyManifestUpdate(candidate.plan);
+
+    expect(result.failedArticleIds).toEqual(['course:a1']);
+    expect(await db.articles.get('course:a1')).toMatchObject({
+      content: '# Old',
+      contentHash: expectedNewHash,
+      downloadedContentHash: oldHash,
+      downloadStatus: 'failed'
+    });
+    expect((await db.groups.get('course'))?.offlineStatus).toBe('partial');
+  });
+
+  it('recognizes and applies a user-supplied manifest URL relocation', async () => {
+    const hash = await contentHash('# One');
+    await seedDownloadedManifest({
+      version: '1',
+      articles: [{ id: 'a1', title: 'One', url: 'https://cdn.reader.test/a1.md', content: '# One', hash }]
+    });
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(manifest('1', [
+      { id: 'a1', title: 'One', url: 'https://cdn.reader.test/a1.md', contentHash: hash }
+    ])), { status: 200 })));
+
+    const candidate = await previewManifestImport('https://moved.reader.test/manifest.json');
+    expect(candidate.kind).toBe('update');
+    if (candidate.kind !== 'update') throw new Error('Expected update candidate.');
+    expect(candidate.plan.sourceUrlChanged).toBe(true);
+    expect(candidate.plan.entries[0]?.kind).toBe('unchanged');
+    const sourceId = candidate.plan.sourceId;
+
+    await applyManifestUpdate(candidate.plan);
+
+    expect(await db.sources.get(sourceId)).toMatchObject({
+      id: sourceId,
+      url: 'https://moved.reader.test/manifest.json'
+    });
+    expect(await db.groups.count()).toBe(1);
+  });
+
+  it('recovers interrupted downloads without discarding cached content', async () => {
+    const hash = await contentHash('# One');
+    await seedDownloadedManifest({
+      version: '1',
+      articles: [{ id: 'a1', title: 'One', url: 'a1.md', content: '# One', hash }]
+    });
+    await db.articles.update('course:a1', { downloadStatus: 'downloading' });
+
+    await expect(recoverInterruptedDownloads()).resolves.toBe(1);
+
+    expect(await db.articles.get('course:a1')).toMatchObject({
+      content: '# One',
+      downloadStatus: 'failed',
+      errorMessage: 'Download was interrupted. Retry to continue.'
+    });
+    expect((await db.groups.get('course'))?.offlineStatus).toBe('partial');
   });
 });

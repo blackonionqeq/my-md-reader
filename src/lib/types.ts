@@ -8,6 +8,8 @@ export interface Source {
   id: string;
   type: SourceType;
   url?: string;
+  manifestFingerprint?: string;
+  lastCheckedAt?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -28,6 +30,9 @@ export interface Group {
 export interface GroupListItem extends Group {
   lastReadAt?: string;
   lastReadTitle?: string;
+  sourceType?: SourceType;
+  sourceUrl?: string;
+  sourceLastCheckedAt?: string;
 }
 
 export interface Article {
@@ -36,6 +41,8 @@ export interface Article {
   order: number;
   title: string;
   url?: string;
+  contentHash?: string;
+  downloadedContentHash?: string;
   content?: string;
   downloadStatus: DownloadStatus;
   errorMessage?: string;
@@ -83,6 +90,7 @@ export interface ManifestArticleInput {
   order?: number;
   title: string;
   url: string;
+  contentHash?: string;
 }
 
 export interface ManifestFile {
@@ -95,10 +103,54 @@ export interface ManifestFile {
 }
 
 export interface ManifestPreview {
+  schemaVersion: number;
   manifestUrl: string;
   source: Source;
   group: Group;
   articles: Article[];
+}
+
+export type ManifestUpdateKind =
+  | 'added'
+  | 'removed'
+  | 'contentChanged'
+  | 'metadataChanged'
+  | 'unchanged';
+
+export interface ManifestUpdateEntry {
+  kind: ManifestUpdateKind;
+  articleId: string;
+  title: string;
+  previousTitle?: string;
+  wasDownloaded: boolean;
+}
+
+export interface ManifestUpdatePlan {
+  groupId: string;
+  sourceId: string;
+  baseFingerprint: string;
+  targetFingerprint: string;
+  oldManifestUrl: string;
+  newManifestUrl: string;
+  oldVersion?: string;
+  newVersion?: string;
+  sourceUrlChanged: boolean;
+  groupMetadataChanged: boolean;
+  legacyPrecision: boolean;
+  target: ManifestPreview;
+  entries: ManifestUpdateEntry[];
+}
+
+export type ManifestImportPreview =
+  | { kind: 'new'; preview: ManifestPreview }
+  | { kind: 'update'; preview: ManifestPreview; plan: ManifestUpdatePlan };
+
+export interface ManifestApplyResult {
+  groupId: string;
+  downloadedArticleIds: string[];
+  failedArticleIds: string[];
+  removedArticleIds: string[];
+  selectedArticleId?: string;
 }
 
 export interface TemporaryArticle {

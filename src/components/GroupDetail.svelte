@@ -1,9 +1,9 @@
 <script lang="ts">
   import { tick } from 'svelte';
-  import { articleStatusLabel } from '../lib/format';
-  import type { Article, Group } from '../lib/types';
+  import { articleStatusLabel, formatRelativeTime } from '../lib/format';
+  import type { Article, GroupListItem } from '../lib/types';
 
-  export let group: Group | null = null;
+  export let group: GroupListItem | null = null;
   export let articles: Article[] = [];
   export let selectedArticleId: string | null = null;
   export let onSelectArticle: (articleId: string) => void = () => {};
@@ -13,6 +13,8 @@
   export let continuousReadingAvailable = false;
   export let continuousReadingDisabledReason = '';
   export let onEnterContinuousReading: () => void = () => {};
+  export let busy = false;
+  export let onCheckUpdate: () => void = () => {};
 
   $: if (selectedArticleId) {
     tick().then(() => {
@@ -30,17 +32,22 @@
         <p>{group.description || 'Group directory'}</p>
       </div>
       <div class="actions">
+        {#if group.sourceType === 'manifest'}
+          <button class="secondary" disabled={busy} on:click={onCheckUpdate}>
+            {busy ? 'Checking…' : 'Check for updates'}
+          </button>
+        {/if}
         <button
           class="continuous"
           class:active={continuousReading}
-          disabled={!continuousReadingAvailable || continuousReading}
+          disabled={busy || !continuousReadingAvailable || continuousReading}
           title={!continuousReadingAvailable ? continuousReadingDisabledReason : undefined}
           on:click={onEnterContinuousReading}
         >
           {continuousReading ? 'Continuous reading active' : 'Continuous reading'}
         </button>
-        <button class="primary" on:click={onDownloadAll}>Download all</button>
-        <button class="secondary" on:click={onRetryFailed}>Retry failed</button>
+        <button class="primary" disabled={busy} on:click={onDownloadAll}>Download all</button>
+        <button class="secondary" disabled={busy} on:click={onRetryFailed}>Retry failed</button>
       </div>
     </div>
 
@@ -49,6 +56,9 @@
       <span>{group.offlineStatus.replace('_', ' ')}</span>
       {#if group.version}
         <span>v{group.version}</span>
+      {/if}
+      {#if group.sourceLastCheckedAt}
+        <span>Checked {formatRelativeTime(group.sourceLastCheckedAt)}</span>
       {/if}
     </div>
 
@@ -59,7 +69,9 @@
             <span class="order">{article.order}</span>
             <div>
               <strong>{article.title}</strong>
-              <small>{articleStatusLabel(article.downloadStatus)}</small>
+              <small>{article.downloadStatus === 'failed' && article.content
+                ? 'Update failed · old version ready'
+                : articleStatusLabel(article.downloadStatus)}</small>
               {#if article.errorMessage}
                 <small class="error">{article.errorMessage}</small>
               {/if}

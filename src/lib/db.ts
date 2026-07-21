@@ -8,8 +8,8 @@ export class ReaderDatabase extends Dexie {
   readingStates!: EntityTable<ReadingState, 'articleId'>;
   assets!: EntityTable<Asset, 'id'>;
 
-  constructor() {
-    super('MyMdReaderDatabase');
+  constructor(name = 'MyMdReaderDatabase') {
+    super(name);
 
     this.version(1).stores({
       sources: 'id, type, url, updatedAt',
@@ -32,6 +32,22 @@ export class ReaderDatabase extends Dexie {
         asset.createdAt = asset.createdAt ?? new Date().toISOString();
         asset.updatedAt = new Date().toISOString();
         delete asset.localCacheKey;
+      });
+    });
+
+    this.version(3).stores({
+      sources: 'id, type, url, updatedAt',
+      groups: 'id, sourceId, offlineStatus, updatedAt, lastReadArticleId',
+      articles: 'id, groupId, order, downloadStatus, updatedAt',
+      readingStates: 'articleId, groupId, isFavorite, lastReadAt',
+      assets: 'id, articleId, status, nextRetryAt, updatedAt'
+    }).upgrade((tx) => {
+      return tx.table('articles').toCollection().modify((article) => {
+        if (article.downloadStatus === 'downloading') {
+          article.downloadStatus = 'failed';
+          article.errorMessage = 'Download was interrupted. Retry to continue.';
+          article.updatedAt = new Date().toISOString();
+        }
       });
     });
   }
