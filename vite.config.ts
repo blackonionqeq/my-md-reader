@@ -78,6 +78,7 @@ export default defineConfig({
     })
   ],
   build: {
+    chunkSizeWarningLimit: 650,
     rolldownOptions: {
       output: {
         chunkFileNames: (chunk) => chunk.name === 'ContinuousReaderPane'
