@@ -10,6 +10,11 @@ previous, current, and next articles mounted as full DOM. Articles outside that
 three-article window retain lightweight slots and height placeholders so users
 can scroll in either direction without losing their position.
 
+Ship the continuous-reader implementation as a separately emitted async feature
+chunk. The main entry may contain only the small mode branch and dynamic-import
+loader required to reach the feature; it must not statically include the
+continuous reader components or virtualization engine.
+
 The mode is intended for occasional reading of collections that typically
 contain 20–30 articles of roughly 20 KB each. It complements rather than
 replaces the existing single-article reader.
@@ -34,6 +39,9 @@ replaces the existing single-article reader.
 - The mode is session-only. It is never stored in IndexedDB or local storage,
   and leaving the mode, changing bookshelf, reloading, or restarting returns to
   single-article reading.
+- A production build emits the continuous reader implementation as a named
+  async JavaScript chunk that is not part of the main entry's static import
+  graph and is requested by the application only when the user enters the mode.
 - Single-article reading, Markdown fallback, offline images, focus mode, and
   existing progress restoration continue to work.
 
@@ -47,6 +55,9 @@ replaces the existing single-article reader.
   larger than 30 articles when their content is fully downloaded.
 - Replacing the existing single-article `ReaderPane`.
 - Adding a browser-automation framework.
+- Preventing the existing PWA precache from storing the async chunk during
+  service-worker installation. Precache storage does not make the chunk part of
+  the main entry or cause the browser to evaluate it at application startup.
 
 ## Availability And Entry
 
@@ -92,7 +103,48 @@ responsibility for IndexedDB access, image-cache hydration, retry state, and
 progress persistence. Continuous-reader components request hydrated content
 only for articles entering the three-article render window.
 
+## Lazy Bundle Boundary
+
+`App.svelte` must not statically import `ContinuousReaderPane.svelte`,
+`ContinuousArticle.svelte`, or `continuous-reader.ts`. Entering the mode starts
+a cached dynamic import of the pane component:
+
+```ts
+const continuousReaderModule = await import(
+  './components/ContinuousReaderPane.svelte'
+);
+```
+
+Display a short loading state while that first import resolves. Cache the module
+promise for the remainder of the page session so later entries do not request it
+again. A failed import leaves the app in single mode and shows a retryable error.
+Do not preload or invoke this import during startup, group selection, ordinary
+single-article reading, or a disabled-button hover.
+
+`ContinuousReaderPane.svelte` statically imports its feature-private article
+component and pure virtualization helper. Because the pane itself is reached
+only through the dynamic import, those modules remain in the async import graph.
+Shared modules already required by the main application, such as Svelte runtime,
+`markdown.ts`, and `content-service.ts`, remain shared and must not be duplicated
+inside the feature chunk.
+
+Vite 8 creates a separate chunk for a dynamic import. Add an explicit
+`continuous-reader` group under the existing
+`build.rolldownOptions.output.codeSplitting.groups` only if the production build
+would otherwise split the three feature-private modules into multiple JavaScript
+files or give the boundary an unstable, unrecognizable grouping. Keep CSS code
+splitting enabled: feature-only component styles may be emitted as an associated
+async CSS asset and must not be folded into startup CSS.
+
+The literal main entry will gain a minimal loader reference and mode-control
+branch; zero-byte growth is not technically possible. The enforceable contract
+is that no continuous-reader implementation is included in that entry. Use a
+1 KiB gzip ceiling for the main-entry delta as a regression guard, measured
+against a build of the parent commit with the same toolchain.
+
 ## Component Boundaries
+
+All new components and helpers in this section belong to the lazy feature graph.
 
 ### `ContinuousReaderPane.svelte`
 
@@ -397,6 +449,25 @@ Cover availability gating, non-persistence, group-change exit, ordinary exit to
 the active single article, continuous-mode arrow navigation, and unchanged
 single-reader behavior. Preserve existing content-service and image-cache tests.
 
+### Bundle-boundary verification
+
+Build both the parent commit and the feature commit with the same installed
+dependencies, then verify:
+
+- the output contains a distinct `continuous-reader-<hash>.js` async chunk;
+- the main entry has no static import edge to that chunk;
+- the pane, article component, observer setup, and virtualization calculations
+  occur only in the async feature chunk;
+- entering continuous mode is the first application action that requests the
+  async JavaScript chunk;
+- feature-only CSS remains outside startup CSS; and
+- the gzip size increase of the main entry is no more than 1 KiB and consists
+  only of mode controls and lazy-loader glue.
+
+The Workbox precache manifest may include the async JavaScript and CSS assets.
+That is compatible with this boundary because the service worker stores files
+without adding them to the main JavaScript module graph or evaluating them.
+
 Run:
 
 ```text
@@ -415,5 +486,8 @@ mode, offline images, and returning to single mode.
 Users can opt into a book-like continuous reading session without combining or
 duplicating persisted Markdown. The scroll surface feels continuous while the
 expensive DOM remains strictly bounded to the current article and its two
-neighbors. Existing article progress, offline storage, and single-reader flows
-remain the source of truth, keeping the feature isolated and reversible.
+neighbors. Its implementation and feature-only styles stay behind a lazy async
+bundle boundary, so ordinary single-article sessions do not load or evaluate the
+continuous-reader code. Existing article progress, offline storage, and
+single-reader flows remain the source of truth, keeping the feature isolated and
+reversible.
