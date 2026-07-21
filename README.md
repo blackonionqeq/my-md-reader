@@ -1,6 +1,6 @@
 # My MD Reader
 
-An offline-first Markdown reader built with Svelte 5, Vite, Dexie, and `vite-plugin-pwa`.
+An offline-first Markdown reader built with Svelte 5, Vite, Dexie, and `vite-plugin-pwa`. It supports ordinary single-article reading and an opt-in virtualized continuous mode for fully downloaded collections.
 
 ## Development
 
@@ -98,4 +98,5 @@ The generated Nginx site config applies these defaults:
 - [Bundle splitting design](docs/superpowers/specs/2026-05-16-bundle-splitting-llm-doc-design.md)
 - [Offline image caching design](docs/superpowers/specs/2026-05-17-offline-image-caching-design.md)
 - [Cache Storage image migration design](docs/superpowers/specs/2026-07-16-cache-storage-image-migration-design.md)
+- [Continuous reading virtualization design](docs/superpowers/specs/2026-07-21-continuous-reading-virtualization-design.md)
 - [Deployment and nginx design](docs/superpowers/specs/2026-05-17-deployment-and-nginx-design.md)
