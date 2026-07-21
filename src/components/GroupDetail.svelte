@@ -9,6 +9,10 @@
   export let onSelectArticle: (articleId: string) => void = () => {};
   export let onDownloadAll: () => void = () => {};
   export let onRetryFailed: () => void = () => {};
+  export let continuousReading = false;
+  export let continuousReadingAvailable = false;
+  export let continuousReadingDisabledReason = '';
+  export let onEnterContinuousReading: () => void = () => {};
 
   $: if (selectedArticleId) {
     tick().then(() => {
@@ -26,6 +30,15 @@
         <p>{group.description || 'Group directory'}</p>
       </div>
       <div class="actions">
+        <button
+          class="continuous"
+          class:active={continuousReading}
+          disabled={!continuousReadingAvailable || continuousReading}
+          title={!continuousReadingAvailable ? continuousReadingDisabledReason : undefined}
+          on:click={onEnterContinuousReading}
+        >
+          {continuousReading ? 'Continuous reading active' : 'Continuous reading'}
+        </button>
         <button class="primary" on:click={onDownloadAll}>Download all</button>
         <button class="secondary" on:click={onRetryFailed}>Retry failed</button>
       </div>
@@ -124,6 +137,25 @@
     background: var(--bg-app);
     color: var(--text-main);
     border-color: var(--border-light) !important;
+  }
+
+  .continuous {
+    background: var(--accent-soft);
+    color: var(--accent);
+    border-color: var(--border-focus) !important;
+  }
+
+  .continuous:hover:not(:disabled) {
+    background: var(--bg-active);
+  }
+
+  .continuous:disabled {
+    cursor: not-allowed;
+    opacity: 0.55;
+  }
+
+  .continuous.active {
+    opacity: 0.8;
   }
 
   .secondary:hover {

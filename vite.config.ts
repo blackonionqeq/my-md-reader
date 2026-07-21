@@ -9,6 +9,7 @@ import { IMAGE_CACHE_NAME } from './src/lib/image-cache-contract';
 const buildTime = new Date().toISOString();
 
 export default defineConfig({
+  resolve: process.env.VITEST ? { conditions: ['browser'] } : undefined,
   define: {
     __APP_VERSION__: JSON.stringify(packageJson.version),
     __BUILD_TIME__: JSON.stringify(buildTime)
@@ -79,6 +80,9 @@ export default defineConfig({
   build: {
     rolldownOptions: {
       output: {
+        chunkFileNames: (chunk) => chunk.name === 'ContinuousReaderPane'
+          ? 'assets/continuous-reader-[hash].js'
+          : 'assets/[name]-[hash].js',
         codeSplitting: {
           groups: [
             {

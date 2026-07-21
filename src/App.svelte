@@ -79,6 +79,17 @@
   let restoringDirectoryScroll = false;
   let swControlled = isServiceWorkerControllingPage();
   let imageMigrationRunning = false;
+  type ReaderMode = 'single' | 'continuous';
+  type ContinuousPaneHandle = {
+    flushProgress: () => Promise<void>;
+    jumpToHeading: (headingId: string) => void;
+  };
+  let readerMode: ReaderMode = 'single';
+  let continuousTargetArticleId: string | null = null;
+  let ContinuousReaderComponent: any = null;
+  let continuousReaderModulePromise: Promise<any> | null = null;
+  let continuousReaderLoading = false;
+  let continuousPane: ContinuousPaneHandle | null = null;
 
   let messageTimer: number | undefined;
 
@@ -158,7 +169,17 @@
     }
   }
 
+  async function leaveContinuousMode(): Promise<void> {
+    await continuousPane?.flushProgress();
+    readerMode = 'single';
+    continuousTargetArticleId = null;
+    continuousPane = null;
+  }
+
   async function selectGroup(groupId: string): Promise<void> {
+    if (readerMode === 'continuous') {
+      await leaveContinuousMode();
+    }
     selectedGroupId = groupId;
     selectedGroup = groups.find((group) => group.id === groupId) ?? null;
     articles = await loadArticles(groupId);
@@ -211,7 +232,11 @@
 
   async function handleSelectArticle(articleId: string): Promise<void> {
     const switching = articleId !== selectedArticleId;
-    await openArticle(articleId);
+    if (readerMode === 'continuous') {
+      continuousTargetArticleId = articleId;
+    } else {
+      await openArticle(articleId);
+    }
     // Dismiss the slide-over directory panel after switching articles so the
     // reader is immediately visible (no-op on desktop where the column persists).
     if (switching) {
@@ -322,11 +347,81 @@
     await refreshGroups();
   }
 
+  async function handleContinuousSaveProgress(payload: {
+    articleId: string;
+    groupId: string;
+    scrollPosition: number;
+    progressRatio: number;
+  }): Promise<void> {
+    await saveReadingProgress(payload);
+    saveLastOpened(payload.groupId, payload.articleId);
+  }
+
+  function handleContinuousActiveArticle(articleId: string): void {
+    selectedArticleId = articleId;
+    continuousTargetArticleId = null;
+    if (selectedGroup) {
+      selectedGroup = { ...selectedGroup, lastReadArticleId: articleId };
+      groups = groups.map((group) => group.id === selectedGroup?.id
+        ? { ...group, lastReadArticleId: articleId }
+        : group);
+      saveLastOpened(selectedGroup.id, articleId);
+    }
+  }
+
+  async function enterContinuousReading(): Promise<void> {
+    if (!selectedGroup || articles.length < 2
+      || selectedGroup.offlineStatus !== 'downloaded'
+      || articles.some((article) => article.downloadStatus !== 'downloaded')) {
+      setMessage('Download every article before entering continuous reading.', 'error');
+      return;
+    }
+
+    const initialArticle = articles.find((article) => article.id === selectedArticleId)
+      ?? articles.find((article) => article.id === selectedGroup?.lastReadArticleId)
+      ?? articles[0];
+    if (!initialArticle) return;
+    const enteringGroupId = selectedGroup.id;
+
+    continuousReaderLoading = true;
+    try {
+      continuousReaderModulePromise ??= import('./components/ContinuousReaderPane.svelte');
+      const module = await continuousReaderModulePromise;
+      if (selectedGroupId !== enteringGroupId) return;
+      ContinuousReaderComponent = module.default;
+      selectedArticleId = initialArticle.id;
+      continuousTargetArticleId = null;
+      outline = [];
+      readerMode = 'continuous';
+      setMessage('Continuous reading enabled.');
+    } catch (error) {
+      continuousReaderModulePromise = null;
+      setMessage(error instanceof Error ? error.message : 'Continuous reader failed to load.', 'error');
+    } finally {
+      continuousReaderLoading = false;
+    }
+  }
+
+  async function handleExitContinuousReading(articleId: string): Promise<void> {
+    await openArticle(articleId, { restoreScroll: true });
+    readerMode = 'single';
+    continuousTargetArticleId = null;
+    continuousPane = null;
+    setMessage('Continuous reading disabled.');
+  }
+
+  function handleOutlineNavigation(event: MouseEvent, headingId: string): void {
+    if (readerMode !== 'continuous') return;
+    event.preventDefault();
+    continuousPane?.jumpToHeading(headingId);
+  }
+
   function openImportPicker(): void {
     fileInput?.click();
   }
 
   async function handleLocalImport(event: Event): Promise<void> {
+    if (readerMode === 'continuous') await leaveContinuousMode();
     const target = event.currentTarget as HTMLInputElement;
     const files = Array.from(target.files ?? []);
     target.value = '';
@@ -364,6 +459,7 @@
   }
 
   async function handleDroppedFiles(files: File[]): Promise<void> {
+    if (readerMode === 'continuous') await leaveContinuousMode();
     if (files.length === 0) {
       setMessage('No markdown files found. Drop .md files to import.', 'error');
       return;
@@ -387,6 +483,7 @@
   }
 
   async function handleRemoveGroup(groupId: string): Promise<void> {
+    if (readerMode === 'continuous' && selectedGroupId === groupId) await leaveContinuousMode();
     await removeGroup(groupId);
     const lastOpened = loadLastOpened();
     if (lastOpened?.groupId === groupId) {
@@ -417,6 +514,7 @@
   }
 
   async function handleClearData(): Promise<void> {
+    if (readerMode === 'continuous') await leaveContinuousMode();
     await clearAllData();
     clearLastOpened();
     groups = [];
@@ -546,7 +644,11 @@
     if (idx === -1) return;
     const next = idx + direction;
     if (next < 0 || next >= articles.length) return;
-    openArticle(articles[next]!.id);
+    if (readerMode === 'continuous') {
+      continuousTargetArticleId = articles[next]!.id;
+    } else {
+      openArticle(articles[next]!.id);
+    }
   }
 
   $: currentArticleIndex = selectedArticleId
@@ -657,7 +759,27 @@
     </aside>
 
     <section class="reader-column">
-      <ReaderPane
+      {#if readerMode === 'continuous' && ContinuousReaderComponent && selectedGroup && selectedArticleId}
+        <ContinuousReaderComponent
+          bind:this={continuousPane}
+          group={selectedGroup}
+          {articles}
+          initialArticleId={selectedArticleId}
+          targetArticleId={continuousTargetArticleId}
+          fontSize={settings.fontSize}
+          {online}
+          onActiveArticleChange={handleContinuousActiveArticle}
+          onOutlineChange={(headings: OutlineHeading[]) => { outline = headings; }}
+          onSaveProgress={handleContinuousSaveProgress}
+          onImageError={({ articleId, src, reason }: { articleId: string; src: string; reason: string }) => {
+            void recordArticleImageFailure(articleId, src, reason);
+          }}
+          onExit={handleExitContinuousReading}
+        />
+      {:else if continuousReaderLoading}
+        <div class="continuous-loading" role="status">Loading continuous reader…</div>
+      {:else}
+        <ReaderPane
         article={selectedArticle}
         {readingState}
         restoreScrollPosition={restoreScrollPosition}
@@ -675,7 +797,8 @@
         onNavigateNext={nextArticleTitle != null ? () => navigateArticle(1) : null}
         previousTitle={previousArticleTitle}
         nextTitle={nextArticleTitle}
-      />
+        />
+      {/if}
     </section>
 
     <aside class:panel-hidden={!showOutline} class="right-column">
@@ -687,6 +810,10 @@
           onSelectArticle={handleSelectArticle}
           onDownloadAll={handleDownloadAll}
           onRetryFailed={handleRetryFailed}
+          continuousReading={readerMode === 'continuous'}
+          continuousReadingAvailable={Boolean(selectedGroup && selectedGroup.offlineStatus === 'downloaded' && articles.length >= 2)}
+          continuousReadingDisabledReason={articles.length < 2 ? 'Continuous reading needs at least two articles.' : 'Download every article first.'}
+          onEnterContinuousReading={enterContinuousReading}
         />
       </div>
 
@@ -696,7 +823,7 @@
           <ul>
             {#each outline as heading}
               <li class={`level-${heading.level}`}>
-                <a href={`#${heading.id}`}>{heading.text}</a>
+                <a href={`#${heading.id}`} on:click={(event) => handleOutlineNavigation(event, heading.id)}>{heading.text}</a>
               </li>
             {/each}
           </ul>
@@ -950,6 +1077,17 @@
   .reader-column {
     min-width: 0;
     min-height: 0;
+  }
+
+  .continuous-loading {
+    height: 100%;
+    min-height: 16rem;
+    display: grid;
+    place-items: center;
+    border: 1px dashed var(--border-focus);
+    border-radius: 1rem;
+    background: var(--bg-panel);
+    color: var(--text-muted);
   }
 
   .outline-card {
