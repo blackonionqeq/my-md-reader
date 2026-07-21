@@ -88,6 +88,7 @@ The generated Nginx site config applies these defaults:
 
 - `/index.html`: `no-cache`
 - `/manifest.webmanifest`: `no-cache`
+- `/sw.js`: `no-cache`
 - `/assets/`: `public, max-age=31536000, immutable`
 - `/icon.svg`: `public, max-age=31536000, immutable`
 - `/content/`: `public, max-age=300`
@@ -99,4 +100,5 @@ The generated Nginx site config applies these defaults:
 - [Offline image caching design](docs/superpowers/specs/2026-05-17-offline-image-caching-design.md)
 - [Cache Storage image migration design](docs/superpowers/specs/2026-07-16-cache-storage-image-migration-design.md)
 - [Continuous reading virtualization design](docs/superpowers/specs/2026-07-21-continuous-reading-virtualization-design.md)
+- [Manifest incremental update design](docs/superpowers/specs/2026-07-21-manifest-incremental-update-design.md)
 - [Deployment and nginx design](docs/superpowers/specs/2026-05-17-deployment-and-nginx-design.md)

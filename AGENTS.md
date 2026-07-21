@@ -26,7 +26,7 @@ Primary user flows:
 - **Database** (`src/lib/db.ts`): Dexie schema (currently v3) with tables: `sources`, `groups`, `articles`, `readingStates`, `assets`.
 - **Image cache** (`src/lib/image-cache.ts`, `src/lib/image-cache-contract.ts`): Cache Storage reads/writes, image request and response validation, legacy Blob migration, cache cleanup, and the shared versioned cache name used by Workbox.
 - **Rendering** (`src/lib/markdown.ts`): lazy-loaded pipeline — `markdown-it` + `highlight.js` (selective language imports) + `dompurify` + `mermaid`. All heavy dependencies stay out of the initial bundle.
-- **Components**: `ReaderPane` is the ordinary single-article reader. `ContinuousReaderPane` and `ContinuousArticle` form the lazy-loaded continuous reader. The remaining UI lives in `Bookshelf`, `GroupDetail`, `AddSourceForm`, `SettingsPanel`, `UpdatePrompt`, and `ManifestHelpDialog`.
+- **Components**: `ReaderPane` is the ordinary single-article reader. `ContinuousReaderPane` and `ContinuousArticle` form the lazy-loaded continuous reader. The remaining UI lives in `Bookshelf`, `GroupDetail`, `AddSourceForm`, `SettingsPanel`, `UpdatePrompt`, `ManifestHelpDialog`, and `ManifestUpdateDialog` (the manifest check-for-updates preview/confirmation dialog).
 - **Utilities**: `manifest-update.ts` (canonical SHA-256 fingerprints and pure manifest diff plans), `continuous-reader.ts` (DOM-independent virtual-window, active-slot, height-estimation, and progress geometry), `focus-mode.ts` (fullscreen focus mode with F11 shortcut), `outline.ts` (heading extraction and optional per-article ID prefixes for the ToC sidebar), `reader-scroll.ts` (scroll position resolution on article open), `settings.ts` (theme/font/last-opened persistence via localStorage), `format.ts` (relative time and status labels), `id.ts` (prefixed ID generation), `drop-import.ts` (drag-and-drop file handling).
 - **Image viewer**: `luma-peek` is lazy-loaded on first image click by both `ReaderPane` and the continuous reader.
 
@@ -52,13 +52,10 @@ When articles are downloaded, `content-service.ts` extracts image URLs from Mark
 
 ## Build and Test Commands
 
-- Install: `pnpm install`
-- Dev server: `pnpm dev`
-- Production build: `pnpm build`
-- Type and Svelte checks: `pnpm check`
-- All tests: `pnpm test` or `pnpm test:unit`
-- Single test file: `pnpm test -- src/lib/manifest.test.ts`
-- Tests use vitest with jsdom environment and `fake-indexeddb`.
+Common commands (`pnpm install`, `dev`, `build`, `check`, `test` / `test:unit`) are listed in `README.md` (Development). Agent-specific notes:
+
+- Run a single test file: `pnpm test -- src/lib/manifest.test.ts`
+- Tests run on vitest with the jsdom environment and `fake-indexeddb`.
 
 ## Performance Notes
 
@@ -87,9 +84,4 @@ When articles are downloaded, `content-service.ts` extracts image URLs from Mark
 
 ## Existing Specs
 
-- `docs/superpowers/specs/2026-05-16-md-reader-pwa-design.md`: initial product and architecture spec.
-- `docs/superpowers/specs/2026-05-16-bundle-splitting-llm-doc-design.md`: bundle splitting and agent-document spec.
-- `docs/superpowers/specs/2026-05-17-deployment-and-nginx-design.md`: deployment and nginx configuration spec.
-- `docs/superpowers/specs/2026-05-17-offline-image-caching-design.md`: offline image caching design spec.
-- `docs/superpowers/specs/2026-07-16-cache-storage-image-migration-design.md`: current Cache Storage image delivery and legacy Blob migration design.
-- `docs/superpowers/specs/2026-07-21-continuous-reading-virtualization-design.md`: lazy-loaded continuous reading and three-article virtualization design.
+Design specs are listed in `README.md` (Specs section) — the single source of truth. Read the relevant one before changing a major subsystem: manifest incremental updates, offline image caching / Cache Storage migration, continuous reading virtualization, bundle splitting, PWA design, or deployment/nginx.
