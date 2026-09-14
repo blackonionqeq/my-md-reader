@@ -14,6 +14,8 @@
   export let continuousReadingDisabledReason = '';
   export let onEnterContinuousReading: () => void = () => {};
   export let busy = false;
+  // Separate from `busy` so a plain "Download all" does not relabel this button.
+  export let checking = false;
   export let onCheckUpdate: () => void = () => {};
 
   $: if (selectedArticleId) {
@@ -34,7 +36,7 @@
       <div class="actions">
         {#if group.sourceType === 'manifest'}
           <button class="secondary" disabled={busy} on:click={onCheckUpdate}>
-            {busy ? 'Checking…' : 'Check for updates'}
+            {checking ? 'Checking…' : 'Check for updates'}
           </button>
         {/if}
         <button

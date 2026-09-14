@@ -60,6 +60,7 @@
   let manifestUpdatePlan: ManifestUpdatePlan | null = null;
   let manifestUpdateBusy = false;
   let manifestUpdateError = '';
+  let manifestUpdateProgress: DownloadProgress | null = null;
 
   let groups: GroupListItem[] = [];
   let selectedGroup: GroupListItem | null = null;
@@ -421,6 +422,7 @@
     manifestUpdateBusy = true;
     downloading = true;
     manifestUpdateError = '';
+    manifestUpdateProgress = null;
     const previousSelectedArticleId = selectedGroupId === plan.groupId ? selectedArticleId : null;
     const previousArticleIds = selectedGroupId === plan.groupId
       ? articles.map((article) => article.id)
@@ -429,6 +431,7 @@
       if (readerMode === 'continuous') await leaveContinuousMode();
       setMessage('Applying manifest update…');
       const result = await applyManifestUpdate(plan, (progress) => {
+        manifestUpdateProgress = progress;
         setMessage(formatDownloadProgress(progress));
       });
       manifestUpdatePlan = null;
@@ -469,6 +472,7 @@
     } finally {
       downloading = false;
       manifestUpdateBusy = false;
+      manifestUpdateProgress = null;
     }
   }
 
@@ -917,6 +921,7 @@
           onDownloadAll={handleDownloadAll}
           onRetryFailed={handleRetryFailed}
           busy={manifestUpdateBusy || downloading}
+          checking={manifestUpdateBusy && manifestUpdatePlan === null}
           onCheckUpdate={handleCheckManifestUpdate}
           continuousReading={readerMode === 'continuous'}
           continuousReadingAvailable={Boolean(selectedGroup && selectedGroup.offlineStatus === 'downloaded' && articles.length >= 2)}
@@ -973,10 +978,12 @@
     plan={manifestUpdatePlan}
     busy={manifestUpdateBusy}
     error={manifestUpdateError}
+    progress={manifestUpdateProgress}
     onCancel={() => {
       if (!manifestUpdateBusy) {
         manifestUpdatePlan = null;
         manifestUpdateError = '';
+        manifestUpdateProgress = null;
       }
     }}
     onApply={handleApplyManifestUpdate}
