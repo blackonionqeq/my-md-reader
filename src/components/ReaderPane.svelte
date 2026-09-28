@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte';
   import { fade } from 'svelte/transition';
-  import { renderMarkdownToHtml, renderMermaidBlocks, highlightCodeBlocks } from '../lib/markdown';
+  import { renderMarkdownToHtml, renderMathBlocks, renderMermaidBlocks, highlightCodeBlocks } from '../lib/markdown';
   import { collectHeadings } from '../lib/outline';
   import { resolveScrollTarget } from '../lib/reader-scroll';
   import type { OutlineHeading, ReaderArticle, ReadingState, TemporaryArticle } from '../lib/types';
@@ -65,6 +65,12 @@
         highlightCodeBlocks(container);
         await renderMermaidBlocks(container);
         onOutlineChange(collectHeadings(container));
+        // After the outline so headings keep plain TeX text, before scroll
+        // restore so the saved offset matches the typeset height.
+        await renderMathBlocks(container);
+        if (requestId !== renderRequestId || !container) {
+          return;
+        }
         const target = resolveScrollTarget({
           restoreScrollPosition,
           savedPosition: readingState?.scrollPosition
@@ -365,6 +371,11 @@
   .reader :global(pre.mermaid svg) {
     max-width: 100%;
     height: auto;
+  }
+
+  .reader :global(div.math-display) {
+    overflow-x: auto;
+    overflow-y: hidden;
   }
 
   .reader :global(code) {

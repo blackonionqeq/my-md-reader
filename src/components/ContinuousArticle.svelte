@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onDestroy, tick } from 'svelte';
-  import { highlightCodeBlocks, renderMarkdownToHtml, renderMermaidBlocks } from '../lib/markdown';
+  import { highlightCodeBlocks, renderMarkdownToHtml, renderMathBlocks, renderMermaidBlocks } from '../lib/markdown';
   import { collectHeadings } from '../lib/outline';
   import type { OutlineHeading } from '../lib/types';
 
@@ -44,6 +44,11 @@
       onRendered({ articleId, html: reusableHtml, headings });
 
       await highlightCodeBlocks(container);
+      if (generation !== renderGeneration || !container) {
+        return;
+      }
+
+      await renderMathBlocks(container);
       if (generation !== renderGeneration || !container) {
         return;
       }
@@ -121,6 +126,11 @@
   .continuous-article-body :global(pre.mermaid svg) {
     max-width: 100%;
     height: auto;
+  }
+
+  .continuous-article-body :global(div.math-display) {
+    overflow-x: auto;
+    overflow-y: hidden;
   }
 
   .continuous-article-body :global(code) {

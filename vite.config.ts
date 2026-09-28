@@ -72,6 +72,16 @@ export default defineConfig({
               cacheName: 'mermaid-cache',
               expiration: { maxEntries: 50, maxAgeSeconds: 30 * 24 * 60 * 60 }
             }
+          },
+          {
+            // KaTeX fonts are fetched only for glyph styles a formula uses.
+            urlPattern: /\/assets\/KaTeX_[^/]+\.woff2$/,
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'katex-fonts',
+              cacheableResponse: { statuses: [0, 200] },
+              expiration: { maxEntries: 40, maxAgeSeconds: 365 * 24 * 60 * 60 }
+            }
           }
         ],
       }

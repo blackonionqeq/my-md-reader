@@ -1,7 +1,10 @@
+import { markdownMathPlugin } from './markdown-math';
+
 type MarkdownItModule = typeof import('markdown-it');
 type HighlightCoreModule = typeof import('highlight.js/lib/core');
 type DomPurifyModule = typeof import('dompurify');
 type MermaidModule = typeof import('mermaid');
+type KatexModule = typeof import('katex');
 type HighlightLanguageModule = {
   default: HighlightCoreModule['default']['registerLanguage'] extends (
     languageName: string,
@@ -50,6 +53,7 @@ async function createRenderer(): Promise<MarkdownRenderer> {
       return '';
     }
   });
+  markdown.use(markdownMathPlugin);
 
   return {
     render(content: string): string {
@@ -175,4 +179,51 @@ export async function renderMermaidBlocks(container: HTMLElement): Promise<void>
   });
 
   await mermaid.run({ nodes: Array.from(nodes) });
+}
+
+let katexPromise: Promise<KatexModule['default']> | null = null;
+
+async function loadKatex(): Promise<KatexModule['default']> {
+  const [katexModule] = await Promise.all([
+    import('katex') as Promise<KatexModule>,
+    import('katex/dist/katex.min.css'),
+  ]);
+  return katexModule.default;
+}
+
+// Typesets placeholders emitted by `markdownMathPlugin`. KaTeX is loaded only
+// when the container has math. Failures leave the TeX source visible instead
+// of breaking the article.
+export async function renderMathBlocks(container: HTMLElement): Promise<void> {
+  const nodes = container.querySelectorAll<HTMLElement>('.math-inline, .math-display');
+  if (nodes.length === 0) {
+    return;
+  }
+
+  if (!katexPromise) {
+    katexPromise = loadKatex();
+  }
+
+  let katex: KatexModule['default'];
+  try {
+    katex = await katexPromise;
+  } catch (error) {
+    katexPromise = null;
+    console.error('[math] KaTeX failed to load', error);
+    return;
+  }
+
+  for (const node of nodes) {
+    if (node.querySelector('.katex')) continue;
+
+    try {
+      katex.render(node.textContent ?? '', node, {
+        displayMode: node.classList.contains('math-display'),
+        throwOnError: false,
+        trust: false,
+      });
+    } catch (error) {
+      console.error('[math] KaTeX render failed', error);
+    }
+  }
 }
